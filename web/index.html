@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <!-- Фоновый градиентный шейдер -->
@@ -48,6 +48,12 @@
         <button id="devBtnStudent" class="dev-btn active" type="button">Студент</button>
         <button id="devBtnAdmin" class="dev-btn" type="button">👑 Староста</button>
       </div>
+    </div>
+
+    <!-- Баннер автономного предпросмотра (если бэкенд не запущен) -->
+    <div id="offlineNotice" class="info-banner hidden" style="margin: 10px 16px 0; background: rgba(147, 51, 234, 0.2); border-color: rgba(192, 132, 252, 0.4);">
+      <span class="info-icon">⚡</span>
+      <span class="info-text">Режим предпросмотра UI. Для живых данных и записи запустите <code>./run.sh</code></span>
     </div>
 
     <!-- Всплывающий тост для уведомлений -->
@@ -278,6 +284,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

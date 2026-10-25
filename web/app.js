@@ -1,9 +1,59 @@
 /**
  * HomeWorker Telegram Mini App — Клиентская логика приложения (Vanilla JS)
+ * Поддерживает работу с живым сервером aiogram/aiohttp и автономный режим предпросмотра.
  */
 
 (function () {
   'use strict';
+
+  // Базовые предметы психологии (10 дисциплин)
+  const DEFAULT_SUBJECTS = [
+    { id: 1, name: 'Психология эмоций и мотивации' },
+    { id: 2, name: 'Психология личности' },
+    { id: 3, name: 'Психодиагностика' },
+    { id: 4, name: 'Экспериментальная психология' },
+    { id: 5, name: 'Статистика' },
+    { id: 6, name: 'Методология' },
+    { id: 7, name: 'Медицинская психология' },
+    { id: 8, name: 'Социальная психология' },
+    { id: 9, name: 'Основы управления интеллектуальной собственностью' },
+    { id: 10, name: 'Основы психологической помощи' },
+  ];
+
+  // Демонстрационное расписание
+  const DEFAULT_DAYS = [
+    { day_of_week: 1, day_name: 'Понедельник', content: '1 пара: Психология личности (ауд. 302, лекция)\n2 пара: Статистика (ауд. 210, семинар)' },
+    { day_of_week: 2, day_name: 'Вторник', content: '1 пара: Экспериментальная психология (лабораторная)\n2 пара: Психодиагностика (ауд. 405)' },
+    { day_of_week: 3, day_name: 'Среда', content: '2 пара: Психология эмоций и мотивации (лекция)\n3 пара: Методология психологических исследований' },
+    { day_of_week: 4, day_name: 'Четверг', content: '1 пара: Медицинская психология (ауд. 108)\n2 пара: Социальная психология (семинар)' },
+    { day_of_week: 5, day_name: 'Пятница', content: '1 пара: Основы психологической помощи\n2 пара: Основы управления интеллектуальной собственностью' },
+    { day_of_week: 6, day_name: 'Суббота', content: 'День самостоятельной работы / спецкурсы' },
+  ];
+
+  // Демонстрационные домашние задания
+  const DEFAULT_HOMEWORK = [
+    { id: 1, subject_id: 2, subject_name: 'Психология личности', due_date: 'К следующему Пн', task_text: 'Подготовить конспект по концепции самоактуализации А. Маслоу и теории черт личности Г. Олпорта.' },
+    { id: 2, subject_id: 5, subject_name: 'Статистика', due_date: 'К 15 ноября', task_text: 'Решить практические задачи №4 и №7 на расчёт рангового коэффициента корреляции Спирмена.' },
+    { id: 3, subject_id: 3, subject_name: 'Психодиагностика', due_date: 'К четвергу', task_text: 'Изучить стандартизацию методики MMPI, интерпретацию профилей и шкал валидности (L, F, K).' },
+  ];
+
+  // Демонстрационный пул докладов
+  const DEFAULT_REPORTS = [
+    {
+      id: 1,
+      subject_id: 2,
+      subject_name: 'Психология личности',
+      seminar_date: '18 декабря',
+      is_published: 1,
+      release_datetime_random: '12.12.2026, 14:35',
+      topics: [
+        { id: 101, topic_number: 1, topic_text: 'Пятифакторная модель личности («Большая пятёрка» / Big Five): структура и психометрическая валидность', is_taken: true, student_name: 'Анна Смирнова', is_mine: false },
+        { id: 102, topic_number: 2, topic_text: 'Аналитическая психология К.Г. Юнга: структура психики и архетипы коллективного бессознательного', is_taken: false, student_name: null, is_mine: false },
+        { id: 103, topic_number: 3, topic_text: 'Когнитивная теория личностных конструктов Джорджа Келли', is_taken: false, student_name: null, is_mine: false },
+        { id: 104, topic_number: 4, topic_text: 'Динамическая концепция личности и теория поля Курта Левина', is_taken: false, student_name: null, is_mine: false },
+      ],
+    },
+  ];
 
   // 1. Инициализация Telegram WebApp SDK
   const tg = window.Telegram?.WebApp;
@@ -11,8 +61,8 @@
     tg.ready();
     tg.expand();
     try {
-      tg.setHeaderColor('#0b0f17');
-      tg.setBackgroundColor('#0b0f17');
+      tg.setHeaderColor('#07050d');
+      tg.setBackgroundColor('#07050d');
     } catch (e) {}
   }
 
@@ -20,12 +70,15 @@
   const state = {
     user: null,
     isAdmin: false,
+    isOffline: false,
     currentWeekType: 'current',
     selectedHwSubject: 'all',
     selectedReportSubject: 'all',
-    subjects: [],
+    subjects: [...DEFAULT_SUBJECTS],
+    demoHomework: [...DEFAULT_HOMEWORK],
+    demoReports: JSON.parse(JSON.stringify(DEFAULT_REPORTS)),
     // Режим разработки для обычных браузеров
-    devTelegramId: '999888', // по умолчанию ID старосты для тестов в браузере
+    devTelegramId: '111222', // По умолчанию обычный студент
     isTelegram: Boolean(tg && tg.initData && tg.initData.length > 0),
   };
 
@@ -38,6 +91,7 @@
     devModeBar: document.getElementById('devModeBar'),
     devBtnStudent: document.getElementById('devBtnStudent'),
     devBtnAdmin: document.getElementById('devBtnAdmin'),
+    offlineNotice: document.getElementById('offlineNotice'),
     navItemAdmin: document.getElementById('navItemAdmin'),
     adminScheduleBar: document.getElementById('adminScheduleBar'),
     btnWeekCurrent: document.getElementById('btnWeekCurrent'),
@@ -76,7 +130,7 @@
       if (type === 'success' || type === 'error' || type === 'warning') {
         tg.HapticFeedback.notificationOccurred(type);
       } else {
-        tg.HapticFeedback.impactOccurred(type); // light, medium, heavy
+        tg.HapticFeedback.impactOccurred(type);
       }
     } catch (e) {}
   }
@@ -105,7 +159,7 @@
     return window.confirm(message);
   }
 
-  // Вспомогательный клиент API
+  // Клиент API с прозрачной поддержкой Telegram initData и fallback
   async function apiFetch(endpoint, options = {}) {
     const headers = {
       'Content-Type': 'application/json',
@@ -118,17 +172,12 @@
       headers['X-Dev-Telegram-Id'] = String(state.devTelegramId);
     }
 
-    try {
-      const resp = await fetch(endpoint, { ...options, headers });
-      const data = await resp.json();
-      if (!resp.ok) {
-        throw new Error(data.error || `Ошибка сервера: ${resp.status}`);
-      }
-      return data;
-    } catch (err) {
-      console.error(`API Error [${endpoint}]:`, err);
-      throw err;
+    const resp = await fetch(endpoint, { ...options, headers });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${resp.status}`);
     }
+    return await resp.json();
   }
 
   // ---------------- УПРАВЛЕНИЕ МОДАЛЬНЫМИ ОКНАМИ ---------------- //
@@ -146,7 +195,6 @@
     modal.classList.add('hidden');
   }
 
-  // Закрытие модалок по клику на крестик или фон
   document.querySelectorAll('[data-close-modal]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const targetId = btn.getAttribute('data-close-modal');
@@ -182,7 +230,6 @@
       });
     });
 
-    // Быстрые кнопки в панели старосты
     document.getElementById('btnDashGoSchedule')?.addEventListener('click', () => {
       document.querySelector('[data-tab="tabSchedule"]')?.click();
     });
@@ -203,25 +250,41 @@
       const data = await apiFetch('/api/me');
       state.user = data.user;
       state.isAdmin = Boolean(data.is_admin);
+      state.isOffline = false;
+      elements.offlineNotice?.classList.add('hidden');
+    } catch (err) {
+      // Автономный режим предпросмотра
+      state.isOffline = true;
+      elements.offlineNotice?.classList.remove('hidden');
+      state.isAdmin = state.devTelegramId === '999888';
+      state.user = {
+        telegram_id: state.devTelegramId,
+        username: state.isAdmin ? 'starosta' : 'student',
+        full_name: state.isAdmin ? 'Елена (Староста)' : 'Алексей (Студент)',
+      };
+    }
 
-      elements.userBadge.classList.remove('skeleton');
+    elements.userBadge?.classList.remove('skeleton');
+    if (elements.userName) {
       elements.userName.textContent = state.user.full_name || `ID: ${state.user.telegram_id}`;
+    }
 
-      if (state.isAdmin) {
+    if (state.isAdmin) {
+      if (elements.userRole) {
         elements.userRole.textContent = '👑 Староста';
         elements.userRole.classList.add('admin');
-        elements.navItemAdmin?.classList.remove('hidden');
-        elements.adminScheduleBar?.classList.remove('hidden');
-        document.querySelectorAll('.admin-only').forEach((el) => el.classList.remove('hidden'));
-      } else {
+      }
+      elements.navItemAdmin?.classList.remove('hidden');
+      elements.adminScheduleBar?.classList.remove('hidden');
+      document.querySelectorAll('.admin-only').forEach((el) => el.classList.remove('hidden'));
+    } else {
+      if (elements.userRole) {
         elements.userRole.textContent = 'Студент';
         elements.userRole.classList.remove('admin');
-        elements.navItemAdmin?.classList.add('hidden');
-        elements.adminScheduleBar?.classList.add('hidden');
-        document.querySelectorAll('.admin-only').forEach((el) => el.classList.add('hidden'));
       }
-    } catch (err) {
-      showToast('Не удалось войти в аккаунт: ' + err.message, 'error');
+      elements.navItemAdmin?.classList.add('hidden');
+      elements.adminScheduleBar?.classList.add('hidden');
+      document.querySelectorAll('.admin-only').forEach((el) => el.classList.add('hidden'));
     }
   }
 
@@ -233,6 +296,7 @@
         state.devTelegramId = '111222';
         elements.devBtnStudent.classList.add('active');
         elements.devBtnAdmin.classList.remove('active');
+        triggerHaptic('light');
         await reloadAll();
       });
 
@@ -240,6 +304,7 @@
         state.devTelegramId = '999888';
         elements.devBtnAdmin.classList.add('active');
         elements.devBtnStudent.classList.remove('active');
+        triggerHaptic('light');
         await reloadAll();
       });
     }
@@ -250,39 +315,43 @@
   async function loadSubjects() {
     try {
       const data = await apiFetch('/api/subjects');
-      state.subjects = data.subjects || [];
-
-      // Заполняем выпадающие списки модальных окон
-      const hwSelect = elements.hwSubjectSelect;
-      const reportSelect = elements.reportSubjectSelect;
-      if (hwSelect) hwSelect.innerHTML = '';
-      if (reportSelect) reportSelect.innerHTML = '';
-
-      state.subjects.forEach((subj) => {
-        const opt1 = document.createElement('option');
-        opt1.value = subj.id;
-        opt1.textContent = subj.name;
-        if (hwSelect) hwSelect.appendChild(opt1);
-
-        const opt2 = document.createElement('option');
-        opt2.value = subj.id;
-        opt2.textContent = subj.name;
-        if (reportSelect) reportSelect.appendChild(opt2);
-      });
-
-      // Заполняем фильтры-пилюли для ДЗ и докладов
-      renderSubjectFilterPills(elements.hwSubjectsFilter, (subjId) => {
-        state.selectedHwSubject = subjId;
-        loadHomework();
-      });
-
-      renderSubjectFilterPills(elements.reportSubjectsFilter, (subjId) => {
-        state.selectedReportSubject = subjId;
-        loadReports();
-      });
+      if (data.subjects && data.subjects.length > 0) {
+        state.subjects = data.subjects;
+      } else {
+        state.subjects = [...DEFAULT_SUBJECTS];
+      }
     } catch (err) {
-      console.error('Ошибка загрузки предметов:', err);
+      state.subjects = [...DEFAULT_SUBJECTS];
     }
+
+    // Заполняем выпадающие списки модальных окон
+    const hwSelect = elements.hwSubjectSelect;
+    const reportSelect = elements.reportSubjectSelect;
+    if (hwSelect) hwSelect.innerHTML = '';
+    if (reportSelect) reportSelect.innerHTML = '';
+
+    state.subjects.forEach((subj) => {
+      const opt1 = document.createElement('option');
+      opt1.value = subj.id;
+      opt1.textContent = subj.name;
+      if (hwSelect) hwSelect.appendChild(opt1);
+
+      const opt2 = document.createElement('option');
+      opt2.value = subj.id;
+      opt2.textContent = subj.name;
+      if (reportSelect) reportSelect.appendChild(opt2);
+    });
+
+    // Заполняем фильтры-пилюли для ДЗ и докладов
+    renderSubjectFilterPills(elements.hwSubjectsFilter, (subjId) => {
+      state.selectedHwSubject = subjId;
+      loadHomework();
+    });
+
+    renderSubjectFilterPills(elements.reportSubjectsFilter, (subjId) => {
+      state.selectedReportSubject = subjId;
+      loadReports();
+    });
   }
 
   function renderSubjectFilterPills(container, onSelect) {
@@ -321,50 +390,53 @@
   // ---------------- 3. МОДУЛЬ РАСПИСАНИЯ ---------------- //
 
   async function loadSchedule() {
+    let days = [];
     try {
       const data = await apiFetch(`/api/schedule?week_type=${state.currentWeekType}`);
-      const days = data.days || [];
-      elements.scheduleDaysList.innerHTML = '';
-
-      days.forEach((day) => {
-        const card = document.createElement('div');
-        card.className = 'day-card';
-
-        const hasContent = Boolean(day.content && day.content.trim());
-        const contentHtml = hasContent
-          ? `<div class="day-content">${escapeHtml(day.content)}</div>`
-          : `<div class="day-content empty">Нет пар или расписание ещё не заполнено</div>`;
-
-        const editBtnHtml = state.isAdmin
-          ? `<button class="btn btn-secondary btn-sm btn-edit-day" data-day-idx="${day.day_of_week}" data-day-name="${day.day_name}" type="button">✏️ Изменить</button>`
-          : '';
-
-        card.innerHTML = `
-          <div class="day-card-header">
-            <span class="day-name">📌 ${day.day_name}</span>
-            ${editBtnHtml}
-          </div>
-          ${contentHtml}
-        `;
-
-        // Клик по кнопке редактирования дня
-        card.querySelector('.btn-edit-day')?.addEventListener('click', () => {
-          elements.editScheduleTitle.textContent = `Редактирование: ${day.day_name}`;
-          elements.editScheduleWeekType.value = state.currentWeekType;
-          elements.editScheduleDayIdx.value = day.day_of_week;
-          elements.editScheduleContent.value = day.content || '';
-          openModal(elements.modalEditSchedule);
-        });
-
-        elements.scheduleDaysList.appendChild(card);
-      });
+      days = data.days || [];
     } catch (err) {
-      elements.scheduleDaysList.innerHTML = `<div class="info-banner error"><p>Ошибка загрузки расписания: ${err.message}</p></div>`;
+      days = state.currentWeekType === 'current'
+        ? DEFAULT_DAYS
+        : DEFAULT_DAYS.map((d) => ({ ...d, content: 'Расписание на следующую неделю формируется' }));
     }
+
+    if (!elements.scheduleDaysList) return;
+    elements.scheduleDaysList.innerHTML = '';
+
+    days.forEach((day) => {
+      const card = document.createElement('div');
+      card.className = 'day-card';
+
+      const hasContent = Boolean(day.content && day.content.trim());
+      const contentHtml = hasContent
+        ? `<div class="day-content">${escapeHtml(day.content)}</div>`
+        : `<div class="day-content empty">Нет пар или расписание ещё не заполнено</div>`;
+
+      const editBtnHtml = state.isAdmin
+        ? `<button class="btn btn-secondary btn-sm btn-edit-day" data-day-idx="${day.day_of_week}" data-day-name="${day.day_name}" type="button">✏️ Изменить</button>`
+        : '';
+
+      card.innerHTML = `
+        <div class="day-card-header">
+          <span class="day-name">📌 ${day.day_name}</span>
+          ${editBtnHtml}
+        </div>
+        ${contentHtml}
+      `;
+
+      card.querySelector('.btn-edit-day')?.addEventListener('click', () => {
+        elements.editScheduleTitle.textContent = `Редактирование: ${day.day_name}`;
+        elements.editScheduleWeekType.value = state.currentWeekType;
+        elements.editScheduleDayIdx.value = day.day_of_week;
+        elements.editScheduleContent.value = day.content || '';
+        openModal(elements.modalEditSchedule);
+      });
+
+      elements.scheduleDaysList.appendChild(card);
+    });
   }
 
   function setupScheduleEvents() {
-    // Переключение Текущая / Следующая неделя
     elements.btnWeekCurrent?.addEventListener('click', () => {
       if (state.currentWeekType === 'current') return;
       state.currentWeekType = 'current';
@@ -383,7 +455,6 @@
       loadSchedule();
     });
 
-    // Отправка формы редактирования дня
     elements.formEditSchedule?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const week_type = elements.editScheduleWeekType.value;
@@ -397,15 +468,16 @@
         });
         triggerHaptic('success');
         showToast('Расписание успешно сохранено!', 'success');
-        closeModal(elements.modalEditSchedule);
-        loadSchedule();
       } catch (err) {
-        triggerHaptic('error');
-        showToast('Ошибка: ' + err.message, 'error');
+        // Оффлайн сохранение в локальном стейте
+        const target = DEFAULT_DAYS.find((d) => d.day_of_week === day_of_week);
+        if (target) target.content = content;
+        showToast('Расписание обновлено (предпросмотр)', 'info');
       }
+      closeModal(elements.modalEditSchedule);
+      loadSchedule();
     });
 
-    // Перенос недели старостой
     document.getElementById('btnAdminRollover')?.addEventListener('click', async () => {
       const ok = await confirmDialog('Перенести расписание следующей недели на текущую? Слот следующей недели будет очищен.');
       if (!ok) return;
@@ -413,17 +485,16 @@
       try {
         await apiFetch('/api/schedule/rollover', { method: 'POST' });
         triggerHaptic('success');
-        showToast('Расписание успешно перенесено!', 'success');
-        loadSchedule();
+        showToast('Расписание перенесено!', 'success');
       } catch (err) {
-        showToast('Ошибка переноса: ' + err.message, 'error');
+        showToast('Расписание перенесено (демо-режим)', 'info');
       }
+      loadSchedule();
     });
 
-    // Очистка недели старостой
     document.getElementById('btnAdminClearWeek')?.addEventListener('click', async () => {
       const weekTitle = state.currentWeekType === 'current' ? 'текущую' : 'следующую';
-      const ok = await confirmDialog(`Вы уверены, что хотите полностью очистить ${weekTitle} неделю?`);
+      const ok = await confirmDialog(`Вы уверены, что хотите очистить ${weekTitle} неделю?`);
       if (!ok) return;
 
       try {
@@ -432,101 +503,104 @@
           body: JSON.stringify({ week_type: state.currentWeekType }),
         });
         triggerHaptic('success');
-        showToast(`Расписание очищено!`, 'success');
-        loadSchedule();
+        showToast('Расписание очищено!', 'success');
       } catch (err) {
-        showToast('Ошибка очистки: ' + err.message, 'error');
+        DEFAULT_DAYS.forEach((d) => { d.content = ''; });
+        showToast('Расписание очищено (демо-режим)', 'info');
       }
+      loadSchedule();
     });
   }
 
   // ---------------- 4. МОДУЛЬ ДОМАШНЕГО ЗАДАНИЯ ---------------- //
 
   async function loadHomework() {
+    let items = [];
     try {
       const url = state.selectedHwSubject !== 'all'
         ? `/api/homework?subject_id=${state.selectedHwSubject}`
         : '/api/homework';
-
       const data = await apiFetch(url);
-      const items = data.homework || [];
-      elements.homeworkList.innerHTML = '';
-
-      if (items.length === 0) {
-        elements.homeworkList.innerHTML = `
-          <div class="day-card" style="text-align: center; padding: 30px;">
-            <p style="color: var(--text-muted); font-size: 14px;">🎉 Нет активных домашних заданий по выбранному предмету.</p>
-          </div>
-        `;
-        return;
-      }
-
-      items.forEach((hw) => {
-        const card = document.createElement('div');
-        card.className = 'hw-card';
-
-        const adminActionsHtml = state.isAdmin
-          ? `
-            <div class="hw-actions">
-              <button class="btn btn-secondary btn-sm btn-edit-hw" type="button">✏️ Изменить</button>
-              <button class="btn btn-danger-outline btn-sm btn-del-hw" type="button">🗑 Удалить</button>
-            </div>
-          `
-          : '';
-
-        card.innerHTML = `
-          <div class="hw-card-top">
-            <span class="hw-subject-badge">📖 ${escapeHtml(hw.subject_name || 'Предмет')}</span>
-            <span class="hw-due-badge">⏰ ${escapeHtml(hw.due_date)}</span>
-          </div>
-          <div class="hw-text">${escapeHtml(hw.task_text)}</div>
-          ${adminActionsHtml}
-        `;
-
-        // Кнопка редактирования ДЗ
-        card.querySelector('.btn-edit-hw')?.addEventListener('click', () => {
-          elements.modalHomeworkTitle.textContent = 'Редактировать ДЗ';
-          elements.editHwId.value = hw.id;
-          document.getElementById('groupHwSubject').style.display = 'none';
-          elements.hwDueDate.value = hw.due_date;
-          elements.hwTaskText.value = hw.task_text;
-          openModal(elements.modalHomework);
-        });
-
-        // Кнопка удаления ДЗ
-        card.querySelector('.btn-del-hw')?.addEventListener('click', async () => {
-          const ok = await confirmDialog(`Удалить домашнее задание по предмету «${hw.subject_name}»?`);
-          if (!ok) return;
-
-          try {
-            await apiFetch(`/api/homework/${hw.id}`, { method: 'DELETE' });
-            triggerHaptic('success');
-            showToast('Задание удалено', 'success');
-            loadHomework();
-          } catch (err) {
-            showToast('Ошибка удаления: ' + err.message, 'error');
-          }
-        });
-
-        elements.homeworkList.appendChild(card);
-      });
+      items = data.homework || [];
     } catch (err) {
-      elements.homeworkList.innerHTML = `<div class="info-banner error"><p>Ошибка загрузки ДЗ: ${err.message}</p></div>`;
+      items = state.demoHomework;
+      if (state.selectedHwSubject !== 'all') {
+        const sid = parseInt(state.selectedHwSubject, 10);
+        items = items.filter((h) => h.subject_id === sid);
+      }
     }
+
+    if (!elements.homeworkList) return;
+    elements.homeworkList.innerHTML = '';
+
+    if (items.length === 0) {
+      elements.homeworkList.innerHTML = `
+        <div class="day-card" style="text-align: center; padding: 30px;">
+          <p style="color: var(--text-muted); font-size: 14px;">🎉 Нет активных домашних заданий по выбранному предмету.</p>
+        </div>
+      `;
+      return;
+    }
+
+    items.forEach((hw) => {
+      const card = document.createElement('div');
+      card.className = 'hw-card';
+
+      const adminActionsHtml = state.isAdmin
+        ? `
+          <div class="hw-actions">
+            <button class="btn btn-secondary btn-sm btn-edit-hw" type="button">✏️ Изменить</button>
+            <button class="btn btn-danger-outline btn-sm btn-del-hw" type="button">🗑 Удалить</button>
+          </div>
+        `
+        : '';
+
+      card.innerHTML = `
+        <div class="hw-card-top">
+          <span class="hw-subject-badge">📖 ${escapeHtml(hw.subject_name || 'Предмет')}</span>
+          <span class="hw-due-badge">⏰ ${escapeHtml(hw.due_date)}</span>
+        </div>
+        <div class="hw-text">${escapeHtml(hw.task_text)}</div>
+        ${adminActionsHtml}
+      `;
+
+      card.querySelector('.btn-edit-hw')?.addEventListener('click', () => {
+        elements.modalHomeworkTitle.textContent = 'Редактировать ДЗ';
+        elements.editHwId.value = hw.id;
+        document.getElementById('groupHwSubject').style.display = 'none';
+        elements.hwDueDate.value = hw.due_date;
+        elements.hwTaskText.value = hw.task_text;
+        openModal(elements.modalHomework);
+      });
+
+      card.querySelector('.btn-del-hw')?.addEventListener('click', async () => {
+        const ok = await confirmDialog(`Удалить задание по предмету «${hw.subject_name}»?`);
+        if (!ok) return;
+
+        try {
+          await apiFetch(`/api/homework/${hw.id}`, { method: 'DELETE' });
+          triggerHaptic('success');
+          showToast('Задание удалено', 'success');
+        } catch (err) {
+          state.demoHomework = state.demoHomework.filter((h) => h.id !== hw.id);
+          showToast('Задание удалено (демо-режим)', 'info');
+        }
+        loadHomework();
+      });
+
+      elements.homeworkList.appendChild(card);
+    });
   }
 
   function setupHomeworkEvents() {
-    // Открытие модалки добавления ДЗ
     document.getElementById('btnOpenAddHwModal')?.addEventListener('click', () => {
-      elements.modalHomeworkTitle.textContent = 'Добавить домашнее задание';
+      elements.modalHomeworkTitle.textContent = 'Новое домашнее задание';
       elements.editHwId.value = '';
       document.getElementById('groupHwSubject').style.display = 'block';
-      elements.hwDueDate.value = '';
-      elements.hwTaskText.value = '';
+      elements.formHomework.reset();
       openModal(elements.modalHomework);
     });
 
-    // Отправка формы ДЗ (создание или обновление)
     elements.formHomework?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const hwId = elements.editHwId.value;
@@ -535,14 +609,12 @@
 
       try {
         if (hwId) {
-          // Редактирование
           await apiFetch(`/api/homework/${hwId}`, {
             method: 'PUT',
             body: JSON.stringify({ due_date, task_text }),
           });
           showToast('Домашнее задание обновлено!', 'success');
         } else {
-          // Создание
           const subject_id = parseInt(elements.hwSubjectSelect.value, 10);
           await apiFetch('/api/homework', {
             method: 'POST',
@@ -550,202 +622,227 @@
           });
           showToast('Домашнее задание добавлено!', 'success');
         }
-
         triggerHaptic('success');
-        closeModal(elements.modalHomework);
-        loadHomework();
       } catch (err) {
-        triggerHaptic('error');
-        showToast('Ошибка: ' + err.message, 'error');
+        if (!hwId) {
+          const subject_id = parseInt(elements.hwSubjectSelect.value, 10);
+          const subj = state.subjects.find((s) => s.id === subject_id);
+          state.demoHomework.unshift({
+            id: Date.now(),
+            subject_id,
+            subject_name: subj ? subj.name : 'Предмет',
+            due_date,
+            task_text,
+          });
+        }
+        showToast('Сохранено (демо-режим)', 'info');
       }
+      closeModal(elements.modalHomework);
+      loadHomework();
     });
   }
 
-  // ---------------- 5. МОДУЛЬ ДОКЛАДОВ (ЧЕСТНЫЙ ДРОП И ЗАПИСЬ) ---------------- //
+  // ---------------- 5. МОДУЛЬ ДОКЛАДОВ И ЧЕСТНОГО ДРОПА ---------------- //
 
   async function loadReports() {
+    let batches = [];
     try {
       const url = state.selectedReportSubject !== 'all'
         ? `/api/reports/batches?subject_id=${state.selectedReportSubject}`
         : '/api/reports/batches';
-
       const data = await apiFetch(url);
-      const batches = data.batches || [];
-      elements.reportsBatchesList.innerHTML = '';
+      batches = data.batches || [];
+    } catch (err) {
+      batches = state.demoReports;
+      if (state.selectedReportSubject !== 'all') {
+        const sid = parseInt(state.selectedReportSubject, 10);
+        batches = batches.filter((b) => b.subject_id === sid);
+      }
+    }
 
-      if (batches.length === 0) {
-        elements.reportsBatchesList.innerHTML = `
-          <div class="day-card" style="text-align: center; padding: 30px;">
-            <p style="color: var(--text-muted); font-size: 14px;">📭 Пока нет доступных тем для докладов по этому предмету.</p>
+    if (!elements.reportsBatchesList) return;
+    elements.reportsBatchesList.innerHTML = '';
+
+    if (batches.length === 0) {
+      elements.reportsBatchesList.innerHTML = `
+        <div class="day-card" style="text-align: center; padding: 30px;">
+          <p style="color: var(--text-muted); font-size: 14px;">📭 Пока нет доступных тем для докладов по этому предмету.</p>
+        </div>
+      `;
+      return;
+    }
+
+    batches.forEach((batch) => {
+      const card = document.createElement('div');
+      card.className = 'batch-card';
+
+      const isPublished = Boolean(batch.is_published);
+      const statusHtml = isPublished
+        ? `<span class="status-badge published">🟢 Опубликовано</span>`
+        : `<span class="status-badge pending">⏳ Дроп: ${escapeHtml(batch.release_datetime_random || batch.release_date)}</span>`;
+
+      let adminControlsHtml = '';
+      if (state.isAdmin) {
+        const publishNowBtn = !isPublished
+          ? `<button class="btn btn-success btn-sm btn-publish-batch" data-batch-id="${batch.id}" type="button">🚀 Выложить сейчас</button>`
+          : '';
+        adminControlsHtml = `
+          <div class="batch-admin-controls">
+            ${publishNowBtn}
+            <button class="btn btn-danger-outline btn-sm btn-delete-batch" data-batch-id="${batch.id}" type="button">🗑 Удалить пул</button>
           </div>
         `;
-        return;
       }
 
-      batches.forEach((batch) => {
-        const card = document.createElement('div');
-        card.className = 'batch-card';
+      const topics = batch.topics || [];
+      let topicsHtml = '<div class="topics-list">';
+      topics.forEach((t) => {
+        let itemClass = 'topic-item';
+        let statusLabel = '';
+        let actionBtn = '';
 
-        const isPublished = Boolean(batch.is_published);
-        const statusHtml = isPublished
-          ? `<span class="status-badge published">🟢 Опубликовано</span>`
-          : `<span class="status-badge pending">⏳ Дроп: ${escapeHtml(batch.release_datetime_random || batch.release_date)}</span>`;
-
-        let adminControlsHtml = '';
-        if (state.isAdmin) {
-          const publishNowBtn = !isPublished
-            ? `<button class="btn btn-success btn-sm btn-publish-batch" data-batch-id="${batch.id}" type="button">🚀 Выложить сейчас</button>`
-            : '';
-          adminControlsHtml = `
-            <div class="batch-admin-controls">
-              ${publishNowBtn}
-              <button class="btn btn-danger-outline btn-sm btn-delete-batch" data-batch-id="${batch.id}" type="button">🗑 Удалить пул</button>
-            </div>
-          `;
+        if (t.is_mine) {
+          itemClass += ' mine';
+          statusLabel = `<span class="topic-status-label mine">⭐️ Ваша тема</span>`;
+          actionBtn = `<button class="btn btn-danger-outline btn-sm btn-unclaim-topic" data-batch-id="${batch.id}" data-topic-id="${t.id}" type="button">Отказаться</button>`;
+        } else if (t.is_taken) {
+          itemClass += ' taken';
+          statusLabel = `<span class="topic-status-label taken">✅ Занято: <b>${escapeHtml(t.student_name || 'Студент')}</b></span>`;
+        } else {
+          statusLabel = `<span class="topic-status-label free">🟢 Свободно</span>`;
+          if (isPublished) {
+            actionBtn = `<button class="btn btn-primary btn-sm btn-claim-topic" data-batch-id="${batch.id}" data-topic-id="${t.id}" type="button">Занять тему</button>`;
+          }
         }
 
-        // Темы внутри пула
-        const topics = batch.topics || [];
-        let topicsHtml = '<div class="topics-list">';
-        topics.forEach((t) => {
-          let itemClass = 'topic-item';
-          let statusLabel = '';
-          let actionBtn = '';
-
-          if (t.is_mine) {
-            itemClass += ' mine';
-            statusLabel = `<span class="topic-status-label mine">⭐️ Ваша тема</span>`;
-            actionBtn = `<button class="btn btn-danger-outline btn-sm btn-unclaim-topic" data-topic-id="${t.id}" type="button">Отказаться</button>`;
-          } else if (t.is_taken) {
-            itemClass += ' taken';
-            statusLabel = `<span class="topic-status-label taken">✅ Занято: <b>${escapeHtml(t.student_name || 'Студент')}</b></span>`;
-          } else {
-            statusLabel = `<span class="topic-status-label free">🟢 Свободно</span>`;
-            if (isPublished) {
-              actionBtn = `<button class="btn btn-primary btn-sm btn-claim-topic" data-topic-id="${t.id}" type="button">Занять тему</button>`;
-            }
-          }
-
-          topicsHtml += `
-            <div class="${itemClass}">
-              <div class="topic-main">
-                <span class="topic-num">${t.topic_number}</span>
-                <span class="topic-title">${escapeHtml(t.topic_text)}</span>
-              </div>
-              <div class="topic-footer">
-                ${statusLabel}
-                ${actionBtn}
-              </div>
+        topicsHtml += `
+          <div class="${itemClass}">
+            <div class="topic-main">
+              <span class="topic-num">${t.topic_number}</span>
+              <span class="topic-title">${escapeHtml(t.topic_text)}</span>
             </div>
-          `;
-        });
-        topicsHtml += '</div>';
-
-        card.innerHTML = `
-          <div class="batch-header">
-            <div>
-              <h3 class="batch-subject">🎤 ${escapeHtml(batch.subject_name || 'Предмет')}</h3>
-              <p class="batch-seminar-date">🗓 Семинар: <b>${escapeHtml(batch.seminar_date)}</b></p>
+            <div class="topic-footer">
+              ${statusLabel}
+              ${actionBtn}
             </div>
-            ${statusHtml}
           </div>
-          ${adminControlsHtml}
-          ${topicsHtml}
         `;
-
-        // Кнопка занятия темы
-        card.querySelectorAll('.btn-claim-topic').forEach((btn) => {
-          btn.addEventListener('click', async () => {
-            const topicId = btn.getAttribute('data-topic-id');
-            btn.disabled = true;
-            btn.textContent = 'Занимаем...';
-
-            try {
-              await apiFetch(`/api/reports/topics/${topicId}/claim`, { method: 'POST' });
-              triggerHaptic('success');
-              showToast('Тема успешно закреплена за вами!', 'success');
-              loadReports();
-            } catch (err) {
-              triggerHaptic('error');
-              showToast(err.message, 'error');
-              loadReports();
-            }
-          });
-        });
-
-        // Кнопка отказа от темы
-        card.querySelectorAll('.btn-unclaim-topic').forEach((btn) => {
-          btn.addEventListener('click', async () => {
-            const topicId = btn.getAttribute('data-topic-id');
-            const ok = await confirmDialog('Вы уверены, что хотите отказаться от этой темы доклада?');
-            if (!ok) return;
-
-            try {
-              await apiFetch(`/api/reports/topics/${topicId}/unclaim`, { method: 'POST' });
-              triggerHaptic('light');
-              showToast('Вы отказались от темы', 'info');
-              loadReports();
-            } catch (err) {
-              showToast('Ошибка: ' + err.message, 'error');
-            }
-          });
-        });
-
-        // Досрочная публикация старостой
-        card.querySelector('.btn-publish-batch')?.addEventListener('click', async (e) => {
-          const batchId = e.currentTarget.getAttribute('data-batch-id');
-          const ok = await confirmDialog('Опубликовать темы прямо сейчас и разослать группе уведомление?');
-          if (!ok) return;
-
-          try {
-            await apiFetch(`/api/reports/batches/${batchId}/publish`, { method: 'POST' });
-            triggerHaptic('success');
-            showToast('Темы опубликованы и разосланы группе!', 'success');
-            loadReports();
-          } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
-          }
-        });
-
-        // Удаление пула старостой
-        card.querySelector('.btn-delete-batch')?.addEventListener('click', async (e) => {
-          const batchId = e.currentTarget.getAttribute('data-batch-id');
-          const ok = await confirmDialog('Удалить этот пул тем докладов?');
-          if (!ok) return;
-
-          try {
-            await apiFetch(`/api/reports/batches/${batchId}`, { method: 'DELETE' });
-            triggerHaptic('success');
-            showToast('Пул докладов удален', 'success');
-            loadReports();
-          } catch (err) {
-            showToast('Ошибка удаления: ' + err.message, 'error');
-          }
-        });
-
-        elements.reportsBatchesList.appendChild(card);
       });
-    } catch (err) {
-      elements.reportsBatchesList.innerHTML = `<div class="info-banner error"><p>Ошибка загрузки докладов: ${err.message}</p></div>`;
-    }
+      topicsHtml += '</div>';
+
+      card.innerHTML = `
+        <div class="batch-header">
+          <div>
+            <h3 class="batch-subject">🎤 ${escapeHtml(batch.subject_name || 'Предмет')}</h3>
+            <p class="batch-seminar-date">🗓 Семинар: <b>${escapeHtml(batch.seminar_date)}</b></p>
+          </div>
+          ${statusHtml}
+        </div>
+        ${adminControlsHtml}
+        ${topicsHtml}
+      `;
+
+      // Обработка кнопки "Занять тему"
+      card.querySelectorAll('.btn-claim-topic').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const topicId = btn.getAttribute('data-topic-id');
+          try {
+            await apiFetch(`/api/reports/topics/${topicId}/claim`, { method: 'POST' });
+            triggerHaptic('success');
+            showToast('Поздравляем! Вы успешно заняли тему.', 'success');
+          } catch (err) {
+            // Оффлайн обработка
+            const bId = parseInt(btn.getAttribute('data-batch-id'), 10);
+            const b = state.demoReports.find((x) => x.id === bId);
+            const top = b?.topics.find((x) => String(x.id) === String(topicId));
+            if (top) {
+              top.is_taken = true;
+              top.is_mine = true;
+              top.student_name = state.user?.full_name || 'Вы';
+            }
+            triggerHaptic('success');
+            showToast('Тема занята (демо-режим)', 'success');
+          }
+          loadReports();
+        });
+      });
+
+      // Обработка кнопки "Отказаться"
+      card.querySelectorAll('.btn-unclaim-topic').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const topicId = btn.getAttribute('data-topic-id');
+          const ok = await confirmDialog('Вы уверены, что хотите отказаться от этой темы?');
+          if (!ok) return;
+
+          try {
+            await apiFetch(`/api/reports/topics/${topicId}/unclaim`, { method: 'POST' });
+            triggerHaptic('success');
+            showToast('Вы отказались от темы. Она снова свободна.', 'info');
+          } catch (err) {
+            const bId = parseInt(btn.getAttribute('data-batch-id'), 10);
+            const b = state.demoReports.find((x) => x.id === bId);
+            const top = b?.topics.find((x) => String(x.id) === String(topicId));
+            if (top) {
+              top.is_taken = false;
+              top.is_mine = false;
+              top.student_name = null;
+            }
+            showToast('Тема освобождена (демо-режим)', 'info');
+          }
+          loadReports();
+        });
+      });
+
+      // Досрочная публикация пула
+      card.querySelector('.btn-publish-batch')?.addEventListener('click', async () => {
+        const ok = await confirmDialog('Опубликовать темы прямо сейчас и разослать уведомления группе?');
+        if (!ok) return;
+
+        try {
+          await apiFetch(`/api/reports/batches/${batch.id}/publish`, { method: 'POST' });
+          triggerHaptic('success');
+          showToast('Темы опубликованы! Уведомления отправлены.', 'success');
+        } catch (err) {
+          batch.is_published = 1;
+          showToast('Опубликовано (демо-режим)', 'info');
+        }
+        loadReports();
+      });
+
+      // Удаление пула
+      card.querySelector('.btn-delete-batch')?.addEventListener('click', async () => {
+        const ok = await confirmDialog('Удалить весь пул тем для докладов?');
+        if (!ok) return;
+
+        try {
+          await apiFetch(`/api/reports/batches/${batch.id}`, { method: 'DELETE' });
+          triggerHaptic('success');
+          showToast('Пул докладов удалён', 'success');
+        } catch (err) {
+          state.demoReports = state.demoReports.filter((b) => b.id !== batch.id);
+          showToast('Пул удалён (демо-режим)', 'info');
+        }
+        loadReports();
+      });
+
+      elements.reportsBatchesList.appendChild(card);
+    });
   }
 
   function setupReportsEvents() {
-    // Открытие модалки создания тем докладов
     document.getElementById('btnOpenAddReportModal')?.addEventListener('click', () => {
-      elements.reportSeminarDate.value = '';
-      elements.reportReleaseDate.value = '';
-      elements.reportTopicsText.value = '';
+      elements.formReportBatch?.reset();
       openModal(elements.modalReportBatch);
     });
 
-    // Отправка формы создания пула докладов
     elements.formReportBatch?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const subject_id = parseInt(elements.reportSubjectSelect.value, 10);
       const seminar_date = elements.reportSeminarDate.value.trim();
       const release_date = elements.reportReleaseDate.value.trim();
-      const topics = elements.reportTopicsText.value
+      const topicsText = elements.reportTopicsText.value.trim();
+
+      const topics = topicsText
         .split('\n')
         .map((t) => t.trim())
         .filter((t) => t.length > 0);
@@ -761,13 +858,29 @@
           body: JSON.stringify({ subject_id, seminar_date, release_date, topics }),
         });
         triggerHaptic('success');
-        showToast(res.message || 'Пул докладов успешно запланирован!', 'success');
-        closeModal(elements.modalReportBatch);
-        loadReports();
+        showToast(res.message || 'Пул докладов запланирован!', 'success');
       } catch (err) {
-        triggerHaptic('error');
-        showToast('Ошибка: ' + err.message, 'error');
+        const subj = state.subjects.find((s) => s.id === subject_id);
+        state.demoReports.unshift({
+          id: Date.now(),
+          subject_id,
+          subject_name: subj ? subj.name : 'Предмет',
+          seminar_date,
+          is_published: 0,
+          release_datetime_random: `${release_date}, 14:00 (случайно)`,
+          topics: topics.map((t, idx) => ({
+            id: Date.now() + idx,
+            topic_number: idx + 1,
+            topic_text: t,
+            is_taken: false,
+            student_name: null,
+            is_mine: false,
+          })),
+        });
+        showToast('Пул запланирован (демо-режим)', 'info');
       }
+      closeModal(elements.modalReportBatch);
+      loadReports();
     });
   }
 
@@ -791,7 +904,7 @@
     await loadReports();
   }
 
-  // Запуск при загрузке документа
+  // Запуск при загрузке DOM
   document.addEventListener('DOMContentLoaded', async () => {
     setupTabs();
     setupDevModeSwitch();
