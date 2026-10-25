@@ -28,7 +28,15 @@ async def get_connection(db_path: Optional[str] = None) -> AsyncGenerator[aiosql
     
     Включает поддержку внешних ключей и доступ к колонкам по имени.
     """
-    path = db_path or DEFAULT_DB_PATH
+    if db_path is None:
+        try:
+            from bot import config
+            path = config.DB_PATH
+        except ImportError:
+            path = os.getenv("DB_PATH", "homeworker.db")
+    else:
+        path = db_path
+
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA foreign_keys = ON;")
