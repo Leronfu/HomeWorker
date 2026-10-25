@@ -235,6 +235,39 @@ class TestWebApi(unittest.IsolatedAsyncioTestCase):
         data_list2 = json.loads(resp_list2.text)
         self.assertEqual(len(data_list2["homework"]), 0)
 
+    async def test_homework_manual_subject_creation(self):
+        """Проверка добавления ДЗ с ручным вводом новой дисциплины."""
+        payload = {
+            "subject_name": "Нейропсихология",
+            "due_date": "К 30 ноября",
+            "task_text": "Изучить синдромы поражения лобных долей по Лурии",
+        }
+        req = self._build_request(
+            "POST",
+            "/api/homework",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            json_data=payload,
+        )
+        resp = await handle_create_homework(req)
+        self.assertEqual(resp.status, 200)
+        data = json.loads(resp.text)
+        self.assertTrue(data["ok"])
+        self.assertIn("subject_id", data)
+
+        # Проверяем, что предмет появился в общем списке
+        req_subjs = self._build_request("GET", "/api/subjects")
+        resp_subjs = await handle_get_subjects(req_subjs)
+        data_subjs = json.loads(resp_subjs.text)
+        subj_names = [s["name"] for s in data_subjs["subjects"]]
+        self.assertIn("Нейропсихология", subj_names)
+
+        # Проверяем, что ДЗ доступно по новому предмету
+        req_hw = self._build_request("GET", f"/api/homework?subject_id={data['subject_id']}")
+        resp_hw = await handle_get_homework(req_hw)
+        data_hw = json.loads(resp_hw.text)
+        self.assertEqual(len(data_hw["homework"]), 1)
+        self.assertEqual(data_hw["homework"][0]["subject_name"], "Нейропсихология")
+
     async def test_reports_flow_claim_and_unclaim(self):
         """Проверка создания пула докладов, занятия темы и отказа от темы."""
         # 1. Староста создает пул докладов

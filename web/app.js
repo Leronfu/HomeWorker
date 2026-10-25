@@ -113,6 +113,9 @@
     modalHomeworkTitle: document.getElementById('modalHomeworkTitle'),
     editHwId: document.getElementById('editHwId'),
     hwSubjectSelect: document.getElementById('hwSubjectSelect'),
+    btnToggleManualSubject: document.getElementById('btnToggleManualSubject'),
+    hwManualSubjectWrap: document.getElementById('hwManualSubjectWrap'),
+    hwManualSubjectInput: document.getElementById('hwManualSubjectInput'),
     hwDueDate: document.getElementById('hwDueDate'),
     hwTaskText: document.getElementById('hwTaskText'),
     modalReportBatch: document.getElementById('modalReportBatch'),
@@ -341,6 +344,13 @@
       opt2.textContent = subj.name;
       if (reportSelect) reportSelect.appendChild(opt2);
     });
+
+    if (hwSelect) {
+      const customOpt = document.createElement('option');
+      customOpt.value = 'custom';
+      customOpt.textContent = '✏️ Ввести предмет вручную...';
+      hwSelect.appendChild(customOpt);
+    }
 
     // Заполняем фильтры-пилюли для ДЗ и докладов
     renderSubjectFilterPills(elements.hwSubjectsFilter, (subjId) => {
@@ -593,12 +603,43 @@
   }
 
   function setupHomeworkEvents() {
+    // Открытие модалки добавления ДЗ
     document.getElementById('btnOpenAddHwModal')?.addEventListener('click', () => {
       elements.modalHomeworkTitle.textContent = 'Новое домашнее задание';
       elements.editHwId.value = '';
       document.getElementById('groupHwSubject').style.display = 'block';
+      if (elements.hwManualSubjectWrap) elements.hwManualSubjectWrap.classList.add('hidden');
+      if (elements.hwManualSubjectInput) elements.hwManualSubjectInput.value = '';
+      if (elements.hwSubjectSelect && elements.hwSubjectSelect.options.length > 0) {
+        elements.hwSubjectSelect.selectedIndex = 0;
+      }
       elements.formHomework.reset();
       openModal(elements.modalHomework);
+    });
+
+    // Переключение ручного ввода предмета кнопкой
+    elements.btnToggleManualSubject?.addEventListener('click', () => {
+      const isHidden = elements.hwManualSubjectWrap?.classList.contains('hidden');
+      if (isHidden) {
+        elements.hwManualSubjectWrap?.classList.remove('hidden');
+        if (elements.hwSubjectSelect) elements.hwSubjectSelect.value = 'custom';
+        elements.hwManualSubjectInput?.focus();
+      } else {
+        elements.hwManualSubjectWrap?.classList.add('hidden');
+        if (elements.hwSubjectSelect && elements.hwSubjectSelect.options.length > 0) {
+          elements.hwSubjectSelect.selectedIndex = 0;
+        }
+      }
+    });
+
+    // Обработка выбора "Ввести вручную..." в селекте
+    elements.hwSubjectSelect?.addEventListener('change', () => {
+      if (elements.hwSubjectSelect.value === 'custom') {
+        elements.hwManualSubjectWrap?.classList.remove('hidden');
+        elements.hwManualSubjectInput?.focus();
+      } else {
+        elements.hwManualSubjectWrap?.classList.add('hidden');
+      }
     });
 
     elements.formHomework?.addEventListener('submit', async (e) => {
@@ -606,6 +647,32 @@
       const hwId = elements.editHwId.value;
       const due_date = elements.hwDueDate.value.trim();
       const task_text = elements.hwTaskText.value.trim();
+
+      const isManual = (elements.hwSubjectSelect?.value === 'custom') ||
+        (elements.hwManualSubjectWrap && !elements.hwManualSubjectWrap.classList.contains('hidden') && elements.hwManualSubjectInput?.value.trim().length > 0);
+
+      const manualSubjectName = elements.hwManualSubjectInput ? elements.hwManualSubjectInput.value.trim() : '';
+
+      let payload = { due_date, task_text };
+      let subject_name_to_use = '';
+      let subject_id_to_use = null;
+
+      if (!hwId) {
+        if (isManual) {
+          if (!manualSubjectName) {
+            showToast('Пожалуйста, введите название предмета вручную', 'error');
+            elements.hwManualSubjectInput?.focus();
+            return;
+          }
+          payload.subject_name = manualSubjectName;
+          subject_name_to_use = manualSubjectName;
+        } else {
+          subject_id_to_use = parseInt(elements.hwSubjectSelect.value, 10);
+          payload.subject_id = subject_id_to_use;
+          const found = state.subjects.find((s) => s.id === subject_id_to_use);
+          subject_name_to_use = found ? found.name : 'Предмет';
+        }
+      }
 
       try {
         if (hwId) {
@@ -615,22 +682,34 @@
           });
           showToast('Домашнее задание обновлено!', 'success');
         } else {
-          const subject_id = parseInt(elements.hwSubjectSelect.value, 10);
           await apiFetch('/api/homework', {
             method: 'POST',
-            body: JSON.stringify({ subject_id, due_date, task_text }),
+            body: JSON.stringify(payload),
           });
           showToast('Домашнее задание добавлено!', 'success');
+          await loadSubjects();
         }
         triggerHaptic('success');
       } catch (err) {
         if (!hwId) {
-          const subject_id = parseInt(elements.hwSubjectSelect.value, 10);
-          const subj = state.subjects.find((s) => s.id === subject_id);
+          let sid = subject_id_to_use;
+          if (isManual) {
+            let existing = state.subjects.find((s) => s.name.toLowerCase() === manualSubjectName.toLowerCase());
+            if (!existing) {
+              sid = Date.now();
+              state.subjects.push({ id: sid, name: manualSubjectName });
+              renderSubjectFilterPills(elements.hwSubjectsFilter, (subjId) => {
+                state.selectedHwSubject = subjId;
+                loadHomework();
+              });
+            } else {
+              sid = existing.id;
+            }
+          }
           state.demoHomework.unshift({
             id: Date.now(),
-            subject_id,
-            subject_name: subj ? subj.name : 'Предмет',
+            subject_id: sid,
+            subject_name: subject_name_to_use,
             due_date,
             task_text,
           });

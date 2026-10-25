@@ -219,6 +219,27 @@ async def get_subject_by_id(subject_id: int, db_path: Optional[str] = None) -> O
         return dict(row) if row else None
 
 
+async def get_or_create_subject(name: str, db_path: Optional[str] = None) -> Dict[str, Any]:
+    """Получить существующий предмет по названию или создать новый."""
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Название предмета не может быть пустым")
+
+    async with get_connection(db_path) as db:
+        cursor = await db.execute(
+            "SELECT * FROM subjects WHERE LOWER(TRIM(name)) = LOWER(TRIM(?));",
+            (cleaned,),
+        )
+        row = await cursor.fetchone()
+        if row:
+            return dict(row)
+
+        cursor = await db.execute("INSERT INTO subjects (name) VALUES (?);", (cleaned,))
+        await db.commit()
+        new_id = cursor.lastrowid
+        return {"id": new_id, "name": cleaned}
+
+
 # =====================================================================
 # Функции работы с расписанием (schedule)
 # =====================================================================

@@ -10,6 +10,7 @@ from bot.database.db import (
     set_user_admin,
     get_all_subjects,
     get_subject_by_id,
+    get_or_create_subject,
     get_schedule,
     get_schedule_day,
     update_schedule_day,

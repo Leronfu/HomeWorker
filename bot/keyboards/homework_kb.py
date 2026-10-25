@@ -8,12 +8,14 @@ def get_subjects_keyboard(
     subjects: List[Dict[str, Any]],
     callback_prefix: str = "hw_subj",
     back_callback: Optional[str] = None,
+    extra_buttons: Optional[List[InlineKeyboardButton]] = None,
 ) -> InlineKeyboardMarkup:
-    """Генерация списка кнопок с предметами (10 дисциплин).
+    """Генерация списка кнопок с предметами.
     
     :param subjects: Список словарей предметов из БД (id, name).
     :param callback_prefix: Префикс для callback_data (например, 'hw_subj' или 'ahw_add_pick').
     :param back_callback: Опциональная callback_data для кнопки '« Назад'.
+    :param extra_buttons: Дополнительные кнопки (например, ввод предмета вручную).
     """
     keyboard: List[List[InlineKeyboardButton]] = []
 
@@ -26,6 +28,10 @@ def get_subjects_keyboard(
                 callback_data=f"{callback_prefix}:{subj_id}",
             )
         ])
+
+    if extra_buttons:
+        for btn in extra_buttons:
+            keyboard.append([btn])
 
     if back_callback:
         keyboard.append([

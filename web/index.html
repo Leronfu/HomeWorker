@@ -232,8 +232,17 @@
       <form id="formHomework" class="modal-form">
         <input type="hidden" id="editHwId">
         <div class="form-group" id="groupHwSubject">
-          <label for="hwSubjectSelect" class="form-label">Предмет:</label>
-          <select id="hwSubjectSelect" class="form-select" required></select>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label for="hwSubjectSelect" class="form-label" style="margin-bottom: 0;">Предмет:</label>
+            <button id="btnToggleManualSubject" type="button" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px;">
+              ✏️ Ввести вручную
+            </button>
+          </div>
+          <select id="hwSubjectSelect" class="form-select"></select>
+          <div id="hwManualSubjectWrap" class="hidden" style="margin-top: 8px;">
+            <input type="text" id="hwManualSubjectInput" class="form-input" placeholder="Введите название предмета (например: Нейропсихология)">
+            <small class="form-hint">Новый предмет автоматически сохранится в списке дисциплин.</small>
+          </div>
         </div>
         <div class="form-group">
           <label for="hwDueDate" class="form-label">Срок сдачи (дедлайн):</label>

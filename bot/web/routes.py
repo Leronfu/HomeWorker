@@ -22,6 +22,7 @@ from bot.database import (
     get_all_homework,
     get_all_report_batches,
     get_all_subjects,
+    get_or_create_subject,
     get_batch_by_id,
     get_batch_topics,
     get_homework_by_id,
@@ -259,14 +260,29 @@ async def handle_create_homework(request: web.Request) -> web.Response:
         return json_response({"ok": False, "error": "Неверный формат JSON"}, 400)
 
     subject_id = data.get("subject_id")
+    subject_name = str(data.get("subject_name", "")).strip()
     due_date = str(data.get("due_date", "")).strip()
     task_text = str(data.get("task_text", "")).strip()
 
-    if not subject_id or not due_date or not task_text:
-        return json_response({"ok": False, "error": "Необходимо указать subject_id, due_date и task_text"}, 400)
+    if not due_date or not task_text:
+        return json_response({"ok": False, "error": "Необходимо указать due_date и task_text"}, 400)
 
-    hw_id = await add_homework(int(subject_id), due_date, task_text)
-    return json_response({"ok": True, "id": hw_id, "message": "Домашнее задание добавлено"})
+    # Если передано текстовое название предмета вручную
+    if subject_name:
+        subj = await get_or_create_subject(subject_name)
+        final_subject_id = subj["id"]
+    elif subject_id and str(subject_id).isdigit() and int(subject_id) > 0:
+        final_subject_id = int(subject_id)
+    else:
+        return json_response({"ok": False, "error": "Необходимо выбрать предмет или ввести его название вручную"}, 400)
+
+    hw_id = await add_homework(final_subject_id, due_date, task_text)
+    return json_response({
+        "ok": True,
+        "id": hw_id,
+        "subject_id": final_subject_id,
+        "message": "Домашнее задание добавлено"
+    })
 
 
 async def handle_update_homework(request: web.Request) -> web.Response:

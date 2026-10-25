@@ -15,6 +15,7 @@ class ScheduleAdminStates(StatesGroup):
 
 class HomeworkAdminStates(StatesGroup):
     """Состояния FSM для добавления и редактирования домашних заданий старостой."""
+    waiting_for_custom_subject = State()
     waiting_for_due_date = State()
     waiting_for_task_text = State()
     waiting_for_edit_task_text = State()

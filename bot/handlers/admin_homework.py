@@ -14,6 +14,7 @@ from bot.database import (
     get_all_subjects,
     get_homework_by_id,
     get_homework_by_subject,
+    get_or_create_subject,
     get_subject_by_id,
     update_homework,
 )
@@ -90,11 +91,68 @@ async def choose_subject_to_add_homework(callback: CallbackQuery, state: FSMCont
                     subjects=subjects,
                     callback_prefix="ahw_start_add",
                     back_callback="admin_hw_menu",
+                    extra_buttons=[
+                        InlineKeyboardButton(
+                            text="✏️ Ввести другой предмет вручную",
+                            callback_data="ahw_custom_subject",
+                        )
+                    ],
                 ),
             )
         except TelegramBadRequest:
             pass
     await callback.answer()
+
+
+@router.callback_query(F.data == "ahw_custom_subject")
+async def ask_custom_subject_name(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос ручного ввода названия предмета."""
+    if not _is_admin_check(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    await state.set_state(HomeworkAdminStates.waiting_for_custom_subject)
+    text = (
+        "✏️ <b>Ввод названия предмета вручную</b>\n\n"
+        "Отправьте сообщением название дисциплины (например: <i>Нейропсихология</i>):"
+    )
+    if callback.message:
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=get_cancel_hw_keyboard(back_callback="ahw_menu_add"),
+            )
+        except TelegramBadRequest:
+            pass
+    await callback.answer()
+
+
+@router.message(HomeworkAdminStates.waiting_for_custom_subject, F.text)
+async def process_custom_subject_name(message: Message, state: FSMContext) -> None:
+    """Обработка введенного названия предмета."""
+    if not _is_admin_check(message.from_user.id):
+        await message.answer("⛔ У вас нет доступа к панели старосты.")
+        await state.clear()
+        return
+
+    subject_name = message.text.strip()
+    if not subject_name or len(subject_name) < 2:
+        await message.answer("⚠️ Название предмета слишком короткое. Введите корректное название:")
+        return
+
+    subj = await get_or_create_subject(subject_name, config.DB_PATH)
+    await state.set_state(HomeworkAdminStates.waiting_for_due_date)
+    await state.update_data(subject_id=subj["id"], subject_name=subj["name"])
+
+    text = (
+        f"➕ <b>Добавление задания: {html.escape(subj['name'])}</b>\n\n"
+        "Шаг 1 из 2: Отправьте сообщением <b>срок сдачи (дедлайн)</b>.\n"
+        "<i>Например: 15.11.2026 или К следующему вторнику</i>"
+    )
+    await message.answer(
+        text=text,
+        reply_markup=get_cancel_hw_keyboard(back_callback="ahw_menu_add"),
+    )
 
 
 @router.callback_query(F.data.startswith("ahw_start_add:"))
