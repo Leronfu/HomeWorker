@@ -117,49 +117,36 @@ WEB_APP_URL=http://localhost:8080
 
 ---
 
-### 4. Запуск 24/7 без установки cloudflared: Связка Alwaysdata + Cloudflare Workers
+### 4. Запуск Mini App на мобильном телефоне (HTTPS-туннель)
 
-Если вы не хотите устанавливать `cloudflared` на свой компьютер и держать Mac постоянно включенным, используйте полностью бесплатную облачную связку **Alwaysdata + Cloudflare Workers**:
+> ⚠️ **Важно:** Telegram требует обязательный протокол **HTTPS** для открытия Web App внутри мессенджера на смартфонах. При запуске на компьютере в обычном браузере достаточно `http://localhost:8080`.
 
-#### Шаг А. Бэкенд на Alwaysdata (бесплатный хостинг Python с постоянным HTTPS):
-1. Зарегистрируйтесь на сайте [alwaysdata.com](https://www.alwaysdata.com) (бесплатный тариф).
-2. Вы получите постоянный адрес вида: `https://ВАШ_АККАУНТ.alwaysdata.net`.
-3. В панели Alwaysdata перейдите в **SSH** (или откройте веб-терминал) и склонируйте репозиторий:
-   ```bash
-   git clone https://github.com/Leronfu/HomeWorker.git
-   cd HomeWorker
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   cp .env.example .env
-   ```
-4. В файле `.env` укажите ваш `BOT_TOKEN`, `ADMIN_IDS` и `WEB_APP_URL` (URL вашего воркера, полученный на шаге Б).
-5. В панели Alwaysdata в разделе **Web > Sites** создайте сайт:
-   - **Type:** `Custom (TCP/IP port)`
-   - **Command:** `source .venv/bin/activate && python3 main.py`
-   - *(Или в разделе **Environment > Programs** добавьте фоновую программу).*
+Чтобы открыть Mini App прямо внутри мобильного приложения Telegram на смартфоне, поднимите бесплатный HTTPS-туннель за 10 секунд (выберите любой удобный вариант):
 
-#### Шаг Б. Cloudflare Worker (CDN и обратный прокси без консоли):
-1. В личном кабинете [dash.cloudflare.com](https://dash.cloudflare.com) перейдите в **Workers & Pages** -> **Create application** -> **Create Worker**.
-2. Назовите его, например, `homeworker-app` и нажмите **Deploy**.
-3. Нажмите **Edit code** (Быстрое редактирование в браузере) и вставьте содержимое файла [cloudflare/worker.js](file:///Users/leronfu/Git/HomeWorker/cloudflare/worker.js).
-4. Замените строку `DEFAULT_ALWAYSDATA_URL` на ваш адрес:
-   ```javascript
-   const DEFAULT_ALWAYSDATA_URL = "https://ВАШ_АККАУНТ.alwaysdata.net";
-   ```
-5. Нажмите **Save and Deploy**. Вы получите постоянную ссылку `https://homeworker-app.ваш-логин.workers.dev`.
-6. Укажите эту ссылку в `@BotFather` через команду `/setmenubutton` (или `/newapp`).
+#### Вариант 1 (Localtunnel — без регистрации и установки):
+```bash
+npx localtunnel --port 8080
+```
+В терминале появится публичная ссылка вида: `https://cool-panda-42.loca.lt`.
 
-Теперь Mini App открывается со сверхбыстрой скоростью Cloudflare, запросы надежно идут на сервер Alwaysdata, а бот работает круглосуточно 24/7!
+#### Вариант 2 (Cloudflare Tunnel — самый быстрый и стабильный):
+```bash
+brew install cloudflared
+cloudflared tunnel --url http://localhost:8080
+```
+В выводе появится ссылка вида: `https://your-subdomain.trycloudflare.com`.
+
+#### Вариант 3 (ngrok):
+```bash
+ngrok http 8080
+```
+
+Скопируйте полученную `https://...` ссылку и вставьте её в ваш `.env`:
+```env
+WEB_APP_URL=https://your-subdomain.trycloudflare.com
+```
 
 ---
-
-### 5. Альтернатива: Локальный запуск на Mac через туннели (для быстрой разработки)
-
-Если вы разрабатываете и тестируете код на локальном компьютере:
-- **Localtunnel:** `npx localtunnel --port 8080`
-- **Cloudflare Tunnel:** `brew install cloudflared && cloudflared tunnel --url http://localhost:8080`
-- **ngrok:** `ngrok http 8080`
 
 ### 5. Запуск приложения и тестов
 

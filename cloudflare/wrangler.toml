@@ -1,6 +1,0 @@
-name = "homeworker-proxy"
-main = "worker.js"
-compatibility_date = "2024-01-01"
-
-[vars]
-ALWAYSDATA_BACKEND_URL = "https://ВАШ_АККАУНТ.alwaysdata.net"

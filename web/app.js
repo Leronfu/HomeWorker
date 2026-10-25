@@ -159,25 +159,6 @@
     return window.confirm(message);
   }
 
-  // Базовый URL API (поддержка связки Alwaysdata + Cloudflare Workers / Pages)
-  function getApiBaseUrl() {
-    if (window.HOMEWORKER_API_URL) return window.HOMEWORKER_API_URL.replace(/\/+$/, '');
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const queryApi = urlParams.get('api');
-      if (queryApi) {
-        const clean = queryApi.replace(/\/+$/, '');
-        localStorage.setItem('hw_api_url', clean);
-        return clean;
-      }
-      const saved = localStorage.getItem('hw_api_url');
-      if (saved) return saved.replace(/\/+$/, '');
-    } catch (e) {}
-    return '';
-  }
-
-  const API_BASE_URL = getApiBaseUrl();
-
   // Клиент API с прозрачной поддержкой Telegram initData и fallback
   async function apiFetch(endpoint, options = {}) {
     const headers = {
@@ -191,8 +172,7 @@
       headers['X-Dev-Telegram-Id'] = String(state.devTelegramId);
     }
 
-    const targetUrl = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
-    const resp = await fetch(targetUrl, { ...options, headers });
+    const resp = await fetch(endpoint, { ...options, headers });
     if (!resp.ok) {
       const errData = await resp.json().catch(() => ({}));
       throw new Error(errData.error || `HTTP ${resp.status}`);

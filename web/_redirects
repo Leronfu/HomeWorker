@@ -1,3 +1,0 @@
-# Cloudflare Pages / redirects config
-# Перенаправление всех запросов API на сервер Alwaysdata без CORS-проблем
-/api/*  https://leronfu.alwaysdata.net/api/:splat  200!
