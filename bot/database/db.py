@@ -331,6 +331,21 @@ async def get_homework_by_subject(
         return [dict(row) for row in rows]
 
 
+async def get_all_homework(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Получить все домашние задания по всем предметам."""
+    async with get_connection(db_path) as db:
+        cursor = await db.execute(
+            """
+            SELECT h.*, s.name as subject_name
+            FROM homework h
+            JOIN subjects s ON h.subject_id = s.id
+            ORDER BY h.id DESC;
+            """
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
 async def get_homework_by_id(
     homework_id: int, db_path: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:

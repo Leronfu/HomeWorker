@@ -30,6 +30,7 @@ from bot.handlers import (
     start_router,
 )
 from bot.utils import restore_pending_report_jobs, setup_scheduler
+from bot.web import start_web_server
 
 # Настройка красивого и понятного логирования
 logging.basicConfig(
@@ -81,12 +82,17 @@ async def main() -> None:
     # Восстановление запланированных дропов докладов после перезапуска
     await restore_pending_report_jobs(bot)
 
-    # 5. Удаление вебхуков и запуск поллинга
+    # 5. Запуск встроенного веб-сервера Telegram Mini App (aiohttp)
+    web_runner = await start_web_server(bot=bot, scheduler=scheduler)
+
+    # 6. Удаление вебхуков и запуск поллинга
     logger.info("Бот готов к работе и ожидает сообщений!")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        await web_runner.cleanup()
+        logger.info("Веб-сервер остановлен.")
         if scheduler.running:
             scheduler.shutdown(wait=False)
             logger.info("Планировщик задач остановлен.")
