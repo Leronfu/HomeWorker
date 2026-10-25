@@ -322,6 +322,26 @@ class TestWebApi(unittest.IsolatedAsyncioTestCase):
         resp_del = await handle_delete_reports_batch(req_del)
         self.assertEqual(resp_del.status, 200)
 
+    async def test_static_files_served(self):
+        """Проверка раздачи фронтенд файлов Telegram Mini App (index.html, style.css, app.js)."""
+        # Проверяем index.html
+        req_index = self._build_request("GET", "/")
+        match_info = await self.app.router.resolve(req_index)
+        resp_index = await match_info.handler(req_index)
+        self.assertEqual(resp_index.status, 200)
+
+        # Проверяем style.css
+        req_css = self._build_request("GET", "/style.css")
+        match_css = await self.app.router.resolve(req_css)
+        resp_css = await match_css.handler(req_css)
+        self.assertEqual(resp_css.status, 200)
+
+        # Проверяем app.js
+        req_js = self._build_request("GET", "/app.js")
+        match_js = await self.app.router.resolve(req_js)
+        resp_js = await match_js.handler(req_js)
+        self.assertEqual(resp_js.status, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

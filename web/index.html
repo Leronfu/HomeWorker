@@ -2,12 +2,281 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>HomeWorker — Психология</title>
+  
+  <!-- Telegram Web App SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="/static/style.css">
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #121820; color: #ffffff; padding: 20px; text-align: center;">
-  <h2>🎓 HomeWorker Mini App</h2>
-  <p>Веб-сервер и API успешно запущены!</p>
+<body>
+  <!-- Фоновый градиентный шейдер -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+
+  <!-- Главный контейнер приложения -->
+  <div id="app" class="app-container">
+    
+    <!-- Верхняя шапка профиля -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-avatar">🧠</div>
+        <div class="brand-info">
+          <h1 class="brand-title">HomeWorker</h1>
+          <span class="brand-subtitle">Факультет Психологии</span>
+        </div>
+      </div>
+      <div class="header-user">
+        <div id="userBadge" class="user-badge skeleton">
+          <span id="userName" class="user-name">Загрузка...</span>
+          <span id="userRole" class="user-role-tag">Студент</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Панель переключения режима разработки (отображается при запуске вне Telegram) -->
+    <div id="devModeBar" class="dev-mode-bar hidden">
+      <span class="dev-label">💻 Тест в браузере:</span>
+      <div class="dev-switch-group">
+        <button id="devBtnStudent" class="dev-btn active" type="button">Студент</button>
+        <button id="devBtnAdmin" class="dev-btn" type="button">👑 Староста</button>
+      </div>
+    </div>
+
+    <!-- Всплывающий тост для уведомлений -->
+    <div id="toast" class="toast hidden"></div>
+
+    <!-- Основной контент экранов (Табы) -->
+    <main class="app-main">
+
+      <!-- ================= 1. ЭКРАН РАСПИСАНИЯ ================= -->
+      <section id="tabSchedule" class="tab-content active">
+        <div class="section-top">
+          <h2 class="section-title">📅 Расписание занятий</h2>
+          <!-- Переключатель недели -->
+          <div class="segmented-control">
+            <button id="btnWeekCurrent" class="segment-btn active" type="button">Текущая неделя</button>
+            <button id="btnWeekNext" class="segment-btn" type="button">Следующая неделя</button>
+          </div>
+        </div>
+
+        <!-- Панель быстрых действий старосты для расписания -->
+        <div id="adminScheduleBar" class="admin-quick-bar hidden">
+          <button id="btnAdminRollover" class="btn btn-secondary btn-sm" type="button">
+            ⏩ Перенести след. неделю на текущую
+          </button>
+          <button id="btnAdminClearWeek" class="btn btn-danger-outline btn-sm" type="button">
+            🗑 Очистить неделю
+          </button>
+        </div>
+
+        <!-- Список карточек дней недели -->
+        <div id="scheduleDaysList" class="schedule-days-grid">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        </div>
+      </section>
+
+      <!-- ================= 2. ЭКРАН ДОМАШНЕГО ЗАДАНИЯ ================= -->
+      <section id="tabHomework" class="tab-content">
+        <div class="section-top">
+          <div class="section-title-wrap">
+            <h2 class="section-title">📚 Домашнее задание</h2>
+            <button id="btnOpenAddHwModal" class="btn btn-primary btn-sm admin-only hidden" type="button">
+              ➕ Добавить ДЗ
+            </button>
+          </div>
+          <!-- Горизонтальный скролл предметов -->
+          <div id="hwSubjectsFilter" class="pills-scroll">
+            <button class="pill-btn active" data-subject-id="all" type="button">Все предметы</button>
+          </div>
+        </div>
+
+        <!-- Список карточек домашних заданий -->
+        <div id="homeworkList" class="homework-cards-list">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        </div>
+      </section>
+
+      <!-- ================= 3. ЭКРАН ДОКЛАДОВ ================= -->
+      <section id="tabReports" class="tab-content">
+        <div class="section-top">
+          <div class="section-title-wrap">
+            <h2 class="section-title">🎤 Темы докладов</h2>
+            <button id="btnOpenAddReportModal" class="btn btn-primary btn-sm admin-only hidden" type="button">
+              ➕ Создать пул тем
+            </button>
+          </div>
+          <div class="info-banner">
+            <span class="info-icon">⚡️</span>
+            <p class="info-text">
+              Темы публикуются через <b>случайный дроп</b>. Успейте нажать кнопку «Занять тему»!
+            </p>
+          </div>
+          <!-- Горизонтальный скролл предметов для докладов -->
+          <div id="reportSubjectsFilter" class="pills-scroll">
+            <button class="pill-btn active" data-subject-id="all" type="button">Все предметы</button>
+          </div>
+        </div>
+
+        <!-- Список пулов докладов -->
+        <div id="reportsBatchesList" class="reports-batches-list">
+          <div class="skeleton-card"></div>
+        </div>
+      </section>
+
+      <!-- ================= 4. ЭКРАН ПАНЕЛИ СТАРОСТЫ ================= -->
+      <section id="tabAdmin" class="tab-content">
+        <div class="section-top">
+          <h2 class="section-title">⚙️ Панель старосты</h2>
+          <p class="section-desc">Управление учебными материалами, расписанием и случайными дропами тем.</p>
+        </div>
+
+        <div class="admin-grid">
+          <!-- Карточка создания пула тем -->
+          <div class="dashboard-card">
+            <div class="dash-icon">🎯</div>
+            <h3 class="dash-title">Новый честный дроп тем</h3>
+            <p class="dash-desc">Внесите вопросы, дату семинара и дату дропа. Бот сам выберет случайное время и уведомит группу.</p>
+            <button id="btnDashCreateReport" class="btn btn-primary" type="button">Создать пул докладов</button>
+          </div>
+
+          <!-- Карточка добавления ДЗ -->
+          <div class="dashboard-card">
+            <div class="dash-icon">📝</div>
+            <h3 class="dash-title">Домашнее задание</h3>
+            <p class="dash-desc">Опубликовать новое домашнее задание по одной из 10 психологических дисциплин с дедлайном.</p>
+            <button id="btnDashCreateHw" class="btn btn-secondary" type="button">Добавить ДЗ</button>
+          </div>
+
+          <!-- Карточка управления расписанием -->
+          <div class="dashboard-card">
+            <div class="dash-icon">🗓</div>
+            <h3 class="dash-title">Расписание на след. неделю</h3>
+            <p class="dash-desc">Заполнить расписание заранее, чтобы в субботу в 15:00 оно автоматически стало текущим.</p>
+            <button id="btnDashGoSchedule" class="btn btn-secondary" type="button">Открыть расписание</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Нижняя навигационная панель -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-tab="tabSchedule" type="button">
+        <span class="nav-icon">📅</span>
+        <span class="nav-label">Расписание</span>
+      </button>
+      <button class="nav-item" data-tab="tabHomework" type="button">
+        <span class="nav-icon">📚</span>
+        <span class="nav-label">ДЗ</span>
+      </button>
+      <button class="nav-item" data-tab="tabReports" type="button">
+        <span class="nav-icon">🎤</span>
+        <span class="nav-label">Доклады</span>
+      </button>
+      <button id="navItemAdmin" class="nav-item hidden" data-tab="tabAdmin" type="button">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Староста</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- ================= МОДАЛЬНЫЕ ОКНА ================= -->
+
+  <!-- Модальное окно 1: Редактирование дня расписания -->
+  <div id="modalEditSchedule" class="modal-backdrop hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modalScheduleTitle" class="modal-title">Редактирование расписания</h3>
+        <button class="modal-close-btn" data-close-modal="modalEditSchedule" type="button">&times;</button>
+      </div>
+      <form id="formEditSchedule" class="modal-form">
+        <input type="hidden" id="editScheduleWeekType">
+        <input type="hidden" id="editScheduleDayIdx">
+        <div class="form-group">
+          <label for="editScheduleContent" class="form-label">Пары и аудитории:</label>
+          <textarea id="editScheduleContent" class="form-textarea" rows="6" placeholder="1. 09:00 - Психодиагностика (ауд. 302)&#10;2. 10:40 - Статистика (ауд. 410)"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-close-modal="modalEditSchedule" type="button">Отмена</button>
+          <button class="btn btn-primary" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Модальное окно 2: Создание/Редактирование ДЗ -->
+  <div id="modalHomework" class="modal-backdrop hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modalHomeworkTitle" class="modal-title">Добавить домашнее задание</h3>
+        <button class="modal-close-btn" data-close-modal="modalHomework" type="button">&times;</button>
+      </div>
+      <form id="formHomework" class="modal-form">
+        <input type="hidden" id="editHwId">
+        <div class="form-group" id="groupHwSubject">
+          <label for="hwSubjectSelect" class="form-label">Предмет:</label>
+          <select id="hwSubjectSelect" class="form-select" required></select>
+        </div>
+        <div class="form-group">
+          <label for="hwDueDate" class="form-label">Срок сдачи (дедлайн):</label>
+          <input type="text" id="hwDueDate" class="form-input" placeholder="Например: К 25 ноября или 25.11.2026" required>
+        </div>
+        <div class="form-group">
+          <label for="hwTaskText" class="form-label">Текст задания:</label>
+          <textarea id="hwTaskText" class="form-textarea" rows="5" placeholder="Опишите задание, страницы учебника или вопросы к семинару..." required></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-close-modal="modalHomework" type="button">Отмена</button>
+          <button class="btn btn-primary" type="submit">Сохранить ДЗ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Модальное окно 3: Создание пула тем докладов -->
+  <div id="modalReportBatch" class="modal-backdrop hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title">Создание честного дропа докладов</h3>
+        <button class="modal-close-btn" data-close-modal="modalReportBatch" type="button">&times;</button>
+      </div>
+      <form id="formReportBatch" class="modal-form">
+        <div class="form-group">
+          <label for="reportSubjectSelect" class="form-label">Предмет:</label>
+          <select id="reportSubjectSelect" class="form-select" required></select>
+        </div>
+        <div class="form-group">
+          <label for="reportSeminarDate" class="form-label">Дата семинара (выступления):</label>
+          <input type="text" id="reportSeminarDate" class="form-input" placeholder="Например: 15 декабря" required>
+        </div>
+        <div class="form-group">
+          <label for="reportReleaseDate" class="form-label">Дата публикации (дропа для группы):</label>
+          <input type="text" id="reportReleaseDate" class="form-input" placeholder="ДД.ММ.ГГГГ (например: 10.12.2026)" required>
+          <small class="form-hint">Бот сам выберет случайное время в течение этого дня (10:00–21:00 МСК).</small>
+        </div>
+        <div class="form-group">
+          <label for="reportTopicsText" class="form-label">Список тем/вопросов (каждая тема с новой строки):</label>
+          <textarea id="reportTopicsText" class="form-textarea" rows="6" placeholder="Теория черт личности Гордона Олпорта&#10;Концепция самоактуализации Маслоу&#10;Пятифакторная модель личности (Big Five)" required></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-close-modal="modalReportBatch" type="button">Отмена</button>
+          <button class="btn btn-primary" type="submit">Запланировать дроп</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
 </body>
 </html>

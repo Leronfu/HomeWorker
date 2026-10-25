@@ -83,6 +83,15 @@ def create_web_app(bot: Optional[Bot] = None, scheduler: Optional[AsyncIOSchedul
             return web.Response(text="Web App UI is being initialized...", content_type="text/html")
 
         app.router.add_get("/", index_handler)
+
+        async def style_handler(request: web.Request) -> web.FileResponse:
+            return web.FileResponse(os.path.join(web_dir, "style.css"))
+
+        async def app_js_handler(request: web.Request) -> web.FileResponse:
+            return web.FileResponse(os.path.join(web_dir, "app.js"))
+
+        app.router.add_get("/style.css", style_handler)
+        app.router.add_get("/app.js", app_js_handler)
         app.router.add_static("/static/", path=web_dir, name="static")
 
     return app
