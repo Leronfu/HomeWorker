@@ -8,7 +8,7 @@
  */
 
 // Укажите адрес вашего сервера на Alwaysdata (можно также задать в переменных Worker: ALWAYSDATA_BACKEND_URL)
-const DEFAULT_ALWAYSDATA_URL = "https://ВАШ_АККАУНТ.alwaysdata.net";
+const DEFAULT_ALWAYSDATA_URL = "https://leronfu.alwaysdata.net";
 
 export default {
   async fetch(request, env, ctx) {
