@@ -7,7 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot import config
 import html
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from datetime import datetime
 import zoneinfo
 from bot.database import (
@@ -43,9 +43,20 @@ async def rollover_weekly_schedule(bot: Optional[Bot] = None) -> None:
                 "Расписание следующей недели автоматически перенесено на текущую.\n"
                 "Слот «Следующая неделя» очищен и готов к новому заполнению старостой."
             )
+            url = config.WEB_APP_URL or "http://localhost:8080"
+            starosta_markup = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="📅 Открыть расписание в Mini App",
+                            web_app=WebAppInfo(url=url),
+                        )
+                    ]
+                ]
+            )
             for admin_id in config.ADMIN_IDS:
                 try:
-                    await bot.send_message(chat_id=admin_id, text=notification_text)
+                    await bot.send_message(chat_id=admin_id, text=notification_text, reply_markup=starosta_markup)
                 except Exception as send_err:
                     logger.warning("Не удалось отправить уведомление старосте %s: %s", admin_id, send_err)
     except Exception as err:
@@ -67,15 +78,16 @@ async def broadcast_report_drop(bot: Bot, batch_id: int) -> int:
         f"🔥 <b>ВЫЛОЖЕНЫ ТЕМЫ ДОКЛАДОВ!</b> 🔥\n\n"
         f"Староста открыл запись на доклады по предмету «<b>{html.escape(subj_name)}</b>»!\n"
         f"🗓 <b>Дата семинара:</b> <code>{html.escape(seminar_date)}</code>\n\n"
-        "⚡ <i>Скорее заходите в раздел «Доклады», чтобы занять тему первым!</i>"
+        "⚡ <i>Скорее открывайте приложение «Доклады», чтобы занять тему первым!</i>"
     )
 
+    url = config.WEB_APP_URL or "http://localhost:8080"
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🎤 Перейти к темам докладов",
-                    callback_data=f"rep_view_batch:{batch_id}",
+                    text="🎤 Открыть темы в Mini App",
+                    web_app=WebAppInfo(url=url),
                 )
             ]
         ]

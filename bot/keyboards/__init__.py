@@ -26,11 +26,12 @@ from bot.keyboards.reports_kb import (
     get_student_batch_topics_keyboard,
     get_student_batches_choice_keyboard,
 )
-from bot.keyboards.main_menu import get_main_menu_keyboard
+from bot.keyboards.main_menu import get_main_menu_keyboard, get_webapp_inline_keyboard
 from bot.keyboards.schedule_kb import get_schedule_view_keyboard
 
 __all__ = [
     "get_main_menu_keyboard",
+    "get_webapp_inline_keyboard",
     "get_schedule_view_keyboard",
     "get_admin_main_keyboard",
     "get_admin_schedule_menu_keyboard",

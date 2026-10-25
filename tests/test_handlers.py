@@ -55,6 +55,8 @@ class TestStartAndRegistration(unittest.IsolatedAsyncioTestCase):
         msg.from_user.username = username
         msg.text = text
         msg.answer = AsyncMock()
+        msg.bot = MagicMock()
+        msg.bot.set_chat_menu_button = AsyncMock()
         return msg
 
     def _get_fsm_context(self, user_id: int) -> FSMContext:
@@ -62,17 +64,15 @@ class TestStartAndRegistration(unittest.IsolatedAsyncioTestCase):
         return FSMContext(storage=self.storage, key=key)
 
     def test_keyboards(self) -> None:
-        """Проверка кнопок для обычного студента и старосты."""
-        student_kb = get_main_menu_keyboard(is_admin=False)
-        student_buttons = [btn.text for row in student_kb.keyboard for btn in row]
-        self.assertIn("📅 Расписание", student_buttons)
-        self.assertIn("📚 Домашнее задание", student_buttons)
-        self.assertIn("🎤 Доклады", student_buttons)
-        self.assertNotIn("⚙️ Панель старосты", student_buttons)
+        """Проверка кнопок для открытия Telegram Mini App."""
+        kb = get_main_menu_keyboard(is_admin=False)
+        buttons = [btn.text for row in kb.keyboard for btn in row]
+        self.assertIn("📱 Открыть приложение", buttons)
+        self.assertIn("ℹ️ Помощь и статус бота", buttons)
 
-        admin_kb = get_main_menu_keyboard(is_admin=True)
-        admin_buttons = [btn.text for row in admin_kb.keyboard for btn in row]
-        self.assertIn("⚙️ Панель старосты", admin_buttons)
+        # Проверка наличия web_app параметра у главной кнопки
+        app_btn = kb.keyboard[0][0]
+        self.assertIsNotNone(app_btn.web_app)
 
     async def test_new_user_registration_flow(self) -> None:
         """Проверка полного FSM-цикла регистрации нового студента."""
@@ -135,6 +135,18 @@ class TestStartAndRegistration(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(db_admin)
         self.assertEqual(db_admin["is_admin"], 1)
         self.assertIn("панель старосты", msg_name.answer.call_args[0][0])
+
+    async def test_any_text_redirect_to_webapp(self) -> None:
+        """Проверка перенаправления любых текстовых сообщений на Mini App."""
+        from bot.handlers.start import handle_any_text
+        msg = self._create_mock_message(10001, "student", "Покажи расписание")
+        await handle_any_text(msg)
+        msg.answer.assert_called_once()
+        text = msg.answer.call_args[0][0]
+        self.assertIn("HomeWorker — Психология", text)
+        self.assertIn("Telegram Mini App", text)
+        markup = msg.answer.call_args[1]["reply_markup"]
+        self.assertIsNotNone(markup.inline_keyboard[0][0].web_app)
 
 
 if __name__ == "__main__":

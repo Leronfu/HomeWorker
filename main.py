@@ -17,7 +17,9 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import MenuButtonWebApp, WebAppInfo
 
+from bot import config
 from bot.config import BOT_TOKEN, DB_PATH
 from bot.database import init_db
 from bot.handlers import (
@@ -85,10 +87,19 @@ async def main() -> None:
     # 5. Запуск встроенного веб-сервера Telegram Mini App (aiohttp)
     web_runner = await start_web_server(bot=bot, scheduler=scheduler)
 
-    # 6. Удаление вебхуков и запуск поллинга
+    # 6. Удаление вебхуков и настройка MenuButton
     logger.info("Бот готов к работе и ожидает сообщений!")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
+        url = config.WEB_APP_URL or "http://localhost:8080"
+        try:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(text="HomeWorker", web_app=WebAppInfo(url=url))
+            )
+            logger.info("Постоянная кнопка меню Mini App установлена.")
+        except Exception as e:
+            logger.debug("Не удалось установить MenuButtonWebApp глобально: %s", e)
+
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         await web_runner.cleanup()
