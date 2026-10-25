@@ -21,10 +21,9 @@ def _parse_admin_ids(raw_ids: str) -> List[int]:
             admin_ids.append(int(cleaned))
     return admin_ids
 
-ADMIN_IDS: List[int] = _parse_admin_ids(os.getenv("ADMIN_IDS", ""))
-
-WEB_HOST: str = os.getenv("WEB_HOST", "0.0.0.0").strip()
-WEB_PORT: int = int(os.getenv("WEB_PORT", "8080").strip() or 8080)
+WEB_HOST: str = os.getenv("WEB_HOST") or os.getenv("IP") or "0.0.0.0"
+raw_port = os.getenv("WEB_PORT") or os.getenv("PORT") or "8080"
+WEB_PORT: int = int(str(raw_port).strip())
 WEB_APP_URL: str = os.getenv("WEB_APP_URL", f"http://localhost:{WEB_PORT}").strip()
 
 def is_admin(telegram_id: int) -> bool:
