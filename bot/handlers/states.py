@@ -20,3 +20,11 @@ class HomeworkAdminStates(StatesGroup):
     waiting_for_edit_task_text = State()
     waiting_for_edit_due_date = State()
 
+
+class ReportAdminStates(StatesGroup):
+    """Состояния FSM для создания и планирования партий докладов старостой."""
+    waiting_for_seminar_date = State()
+    waiting_for_topics_list = State()
+    waiting_for_release_date = State()
+
+

@@ -440,6 +440,25 @@ async def get_pending_report_batches(db_path: Optional[str] = None) -> List[Dict
         return [dict(row) for row in rows]
 
 
+async def get_all_report_batches(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Получить все партии докладов (для админки) со статистикой по темам."""
+    async with get_connection(db_path) as db:
+        cursor = await db.execute(
+            """
+            SELECT b.*, s.name as subject_name,
+                   COUNT(t.id) as topics_count,
+                   SUM(CASE WHEN t.user_id IS NOT NULL THEN 1 ELSE 0 END) as claimed_count
+            FROM report_batches b
+            JOIN subjects s ON b.subject_id = s.id
+            LEFT JOIN report_topics t ON b.id = t.batch_id
+            GROUP BY b.id
+            ORDER BY b.id DESC;
+            """
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
 async def publish_report_batch(batch_id: int, db_path: Optional[str] = None) -> bool:
     """Пометить партию докладов как опубликованную."""
     async with get_connection(db_path) as db:

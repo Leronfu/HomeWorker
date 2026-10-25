@@ -1,0 +1,135 @@
+"""Вспомогательные утилиты для работы с темами докладов, парсинга дат и генерации случайного времени."""
+
+import html
+import random
+import re
+from datetime import date, datetime, time, timezone, timedelta
+from typing import Any, Dict, List, Optional
+import zoneinfo
+
+MSK_TZ = zoneinfo.ZoneInfo("Europe/Moscow")
+
+
+def parse_topics_text(raw_text: str) -> List[str]:
+    """Парсинг списка тем докладов из текста сообщения.
+    
+    Удаляет маркеры списка (1., 1), -, *, •), обрезает пробелы и исключает пустые строки.
+    """
+    topics: List[str] = []
+    for line in raw_text.splitlines():
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        # Удаляем ведущую нумерацию вида "1.", "1)", "-", "•", "*"
+        cleaned = re.sub(r"^(\d+[\.\)]|[-*•—])\s*", "", cleaned).strip()
+        if cleaned:
+            topics.append(cleaned)
+    return topics
+
+
+def parse_release_date(raw_date: str) -> Optional[date]:
+    """Парсинг строки с датой публикации (дропа).
+    
+    Поддерживаемые форматы:
+    - ДД.ММ.ГГГГ (например, 28.10.2026)
+    - ДД.ММ (например, 28.10 — подставляется текущий или следующий год)
+    - ГГГГ-ММ-ДД (например, 2026-10-28)
+    """
+    cleaned = raw_date.strip()
+    now_msk = datetime.now(MSK_TZ).date()
+
+    # Формат ДД.ММ.ГГГГ
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            parsed = datetime.strptime(cleaned, fmt).date()
+            return parsed
+        except ValueError:
+            pass
+
+    # Формат ДД.ММ
+    if re.match(r"^\d{1,2}\.\d{1,2}$", cleaned):
+        try:
+            day, month = map(int, cleaned.split("."))
+            year = now_msk.year
+            parsed = date(year, month, day)
+            # Если дата в этом году уже прошла, берем следующий год
+            if parsed < now_msk:
+                parsed = date(year + 1, month, day)
+            return parsed
+        except ValueError:
+            return None
+
+    return None
+
+
+def generate_random_release_datetime(
+    release_date: date, min_hour: int = 10, max_hour: int = 20
+) -> datetime:
+    """Генерация случайного времени публикации тем в указанный день.
+    
+    Интервал по умолчанию: с 10:00 до 20:59 по московскому времени (МСК),
+    чтобы уведомление не приходило ночью или слишком рано утром.
+    """
+    now_msk = datetime.now(MSK_TZ)
+
+    # Если публикация назначена на сегодня
+    if release_date == now_msk.date():
+        if now_msk.hour >= max_hour:
+            # Если уже вечер текущего дня, ставим через 2 минуты
+            return now_msk + timedelta(minutes=2)
+        start_hour = max(min_hour, now_msk.hour)
+        rand_hour = random.randint(start_hour, max_hour)
+        if rand_hour == now_msk.hour:
+            min_minute = min(58, now_msk.minute + 1)
+            rand_minute = random.randint(min_minute, 59)
+        else:
+            rand_minute = random.randint(0, 59)
+    else:
+        rand_hour = random.randint(min_hour, max_hour)
+        rand_minute = random.randint(0, 59)
+
+    rand_second = random.randint(0, 59)
+    return datetime(
+        release_date.year,
+        release_date.month,
+        release_date.day,
+        rand_hour,
+        rand_minute,
+        rand_second,
+        tzinfo=MSK_TZ,
+    )
+
+
+def format_report_batch_admin(batch: Dict[str, Any], topics: List[Dict[str, Any]]) -> str:
+    """Форматирование детальной информации о партии докладов для старосты."""
+    subject_name = html.escape(str(batch.get("subject_name", "Предмет")))
+    seminar_date = html.escape(str(batch.get("seminar_date", "—")))
+    release_date = html.escape(str(batch.get("release_date", "—")))
+    release_dt_raw = batch.get("release_datetime_random", "—")
+    is_published = bool(batch.get("is_published", False))
+
+    if is_published:
+        status_line = "🟢 <b>Статус: Опубликовано (темы доступны студентам)</b>"
+    else:
+        status_line = f"⏳ <b>Статус: Запланирован дроп</b>\n⏰ <b>Время дропа (МСК):</b> <code>{html.escape(release_dt_raw)}</code> <i>(скрыто от группы)</i>"
+
+    lines = [
+        f"🎤 <b>Партия докладов #{batch['id']}</b>\n",
+        f"📚 <b>Предмет:</b> {subject_name}",
+        f"🗓 <b>Дата семинара:</b> <code>{seminar_date}</code>",
+        f"📅 <b>Дата дропа:</b> <code>{release_date}</code>",
+        status_line,
+        f"\n📝 <b>Список тем ({len(topics)}):</b>",
+    ]
+
+    for t in topics:
+        num = t.get("topic_number", 1)
+        topic_text = html.escape(str(t.get("topic_text", "")))
+        student_name = t.get("student_name")
+        if student_name:
+            status = f"✅ Занято (<b>{html.escape(student_name)}</b>)"
+        else:
+            status = "🟢 Свободно"
+        lines.append(f"{num}. {topic_text} — {status}")
+
+    return "\n".join(lines)

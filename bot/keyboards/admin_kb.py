@@ -22,6 +22,12 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
+                    text="🎤 Управление докладами",
+                    callback_data="admin_reports_menu",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="❌ Закрыть панель",
                     callback_data="admin_close",
                 )

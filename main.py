@@ -13,12 +13,13 @@ from bot.config import BOT_TOKEN, DB_PATH
 from bot.database import init_db
 from bot.handlers import (
     admin_homework_router,
+    admin_reports_router,
     admin_schedule_router,
     homework_router,
     schedule_router,
     start_router,
 )
-from bot.utils import setup_scheduler
+from bot.utils import restore_pending_report_jobs, setup_scheduler
 
 # Настройка красивого и понятного логирования
 logging.basicConfig(
@@ -59,11 +60,15 @@ async def main() -> None:
     dp.include_router(admin_schedule_router)
     dp.include_router(homework_router)
     dp.include_router(admin_homework_router)
+    dp.include_router(admin_reports_router)
 
     # 4. Инициализация и запуск планировщика задач (APScheduler)
     scheduler = setup_scheduler(bot)
     scheduler.start()
     logger.info("Планировщик фоновых задач APScheduler запущен.")
+
+    # Восстановление запланированных дропов докладов после перезапуска
+    await restore_pending_report_jobs(bot)
 
     # 5. Удаление вебхуков и запуск поллинга
     logger.info("Бот готов к работе и ожидает сообщений!")
