@@ -1,8 +1,17 @@
+#!/usr/bin/env python3
 """Точка входа для запуска Telegram-бота учебной группы."""
+
+import os
+import sys
+
+# Автоматическое переключение на виртуальное окружение .venv при прямом запуске через глобальный python3
+if sys.prefix == sys.base_prefix:
+    venv_python = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python3")
+    if os.path.exists(venv_python) and os.path.abspath(sys.executable) != os.path.abspath(venv_python):
+        os.execv(venv_python, [venv_python] + sys.argv)
 
 import asyncio
 import logging
-import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
