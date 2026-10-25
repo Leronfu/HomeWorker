@@ -133,3 +133,53 @@ def format_report_batch_admin(batch: Dict[str, Any], topics: List[Dict[str, Any]
         lines.append(f"{num}. {topic_text} — {status}")
 
     return "\n".join(lines)
+
+
+def format_report_batch_student(
+    batch: Dict[str, Any], topics: List[Dict[str, Any]], user_id: Optional[int] = None
+) -> str:
+    """Форматирование списка тем докладов для студента."""
+    subject_name = html.escape(str(batch.get("subject_name", "Предмет")))
+    seminar_date = html.escape(str(batch.get("seminar_date", "—")))
+
+    free_count = sum(1 for t in topics if t.get("user_id") is None)
+    total_count = len(topics)
+
+    lines = [
+        f"🎤 <b>Доклады: {subject_name}</b>",
+        f"🗓 <b>Дата семинара:</b> <code>{seminar_date}</code>",
+        f"📊 <b>Свободно тем:</b> {free_count} из {total_count}\n",
+        "📝 <b>Список тем:</b>",
+    ]
+
+    user_claimed_number = None
+
+    for t in topics:
+        num = t.get("topic_number", 1)
+        topic_text = html.escape(str(t.get("topic_text", "")))
+        topic_user_id = t.get("user_id")
+        student_name = t.get("student_name")
+
+        if topic_user_id is not None:
+            if user_id and topic_user_id == user_id:
+                user_claimed_number = num
+                status = f"🌟 <b>Занято вами ({html.escape(student_name or 'Вы')})</b>"
+            else:
+                status = f"✅ Занято (<b>{html.escape(student_name or 'Студент')}</b>)"
+        else:
+            status = "🟢 Свободно"
+
+        lines.append(f"{num}. {topic_text} — {status}")
+
+    if user_claimed_number:
+        lines.append(
+            f"\n💡 <i>Вы заняли тему №{user_claimed_number}. "
+            "Если хотите сменить её, сначала нажмите кнопку «Отказаться от темы» ниже.</i>"
+        )
+    elif free_count > 0:
+        lines.append("\n👉 <i>Нажмите на кнопку с номером свободной темы ниже, чтобы занять её:</i>")
+    else:
+        lines.append("\n🔒 <i>Все темы в этой партии уже заняты одногруппниками.</i>")
+
+    return "\n".join(lines)
+

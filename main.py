@@ -16,6 +16,7 @@ from bot.handlers import (
     admin_reports_router,
     admin_schedule_router,
     homework_router,
+    reports_router,
     schedule_router,
     start_router,
 )
@@ -61,6 +62,7 @@ async def main() -> None:
     dp.include_router(homework_router)
     dp.include_router(admin_homework_router)
     dp.include_router(admin_reports_router)
+    dp.include_router(reports_router)
 
     # 4. Инициализация и запуск планировщика задач (APScheduler)
     scheduler = setup_scheduler(bot)

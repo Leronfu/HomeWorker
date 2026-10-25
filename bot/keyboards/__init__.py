@@ -23,6 +23,8 @@ from bot.keyboards.reports_kb import (
     get_admin_confirm_delete_batch_keyboard,
     get_admin_reports_menu_keyboard,
     get_cancel_reports_keyboard,
+    get_student_batch_topics_keyboard,
+    get_student_batches_choice_keyboard,
 )
 from bot.keyboards.main_menu import get_main_menu_keyboard
 from bot.keyboards.schedule_kb import get_schedule_view_keyboard
@@ -48,4 +50,6 @@ __all__ = [
     "get_admin_batch_detail_keyboard",
     "get_admin_confirm_delete_batch_keyboard",
     "get_cancel_reports_keyboard",
+    "get_student_batch_topics_keyboard",
+    "get_student_batches_choice_keyboard",
 ]

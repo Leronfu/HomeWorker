@@ -4,6 +4,7 @@ from bot.utils.homework_helpers import (
 )
 from bot.utils.report_helpers import (
     format_report_batch_admin,
+    format_report_batch_student,
     generate_random_release_datetime,
     parse_release_date,
     parse_topics_text,
@@ -17,6 +18,7 @@ from bot.utils.schedule_helpers import (
     get_weekday_short,
 )
 from bot.utils.scheduler import (
+    broadcast_report_drop,
     cancel_scheduled_report_job,
     publish_report_job,
     restore_pending_report_jobs,
@@ -39,10 +41,12 @@ __all__ = [
     "parse_release_date",
     "generate_random_release_datetime",
     "format_report_batch_admin",
+    "format_report_batch_student",
     "scheduler",
     "setup_scheduler",
     "rollover_weekly_schedule",
     "publish_report_job",
+    "broadcast_report_drop",
     "schedule_report_release",
     "cancel_scheduled_report_job",
     "restore_pending_report_jobs",

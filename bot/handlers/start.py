@@ -90,9 +90,6 @@ async def process_full_name(message: Message, state: FSMContext) -> None:
     )
 
 
-# Заглушка для раздела докладов (Шаги 6–7)
-@router.message(F.text == "🎤 Доклады")
-async def stub_reports(message: Message) -> None:
-    await message.answer("🎤 <b>Раздел «Доклады»</b> (честный дроп и бронирование тем) будет активирован на Шагах 6–7.")
+
 
 

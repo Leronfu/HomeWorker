@@ -6,10 +6,13 @@ from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot import config
+import html
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from datetime import datetime
 import zoneinfo
 from bot.database import (
     copy_next_to_current_week,
+    get_all_users,
     get_batch_by_id,
     get_pending_report_batches,
     publish_report_batch,
@@ -49,6 +52,48 @@ async def rollover_weekly_schedule(bot: Optional[Bot] = None) -> None:
         logger.error("Критическая ошибка при переносе расписания: %s", err, exc_info=True)
 
 
+async def broadcast_report_drop(bot: Bot, batch_id: int) -> int:
+    """Массовая рассылка всем зарегистрированным пользователям о честном дропе тем докладов."""
+    logger.info("Запуск массовой рассылки о дропе докладов batch_id=%s...", batch_id)
+    batch = await get_batch_by_id(batch_id, config.DB_PATH)
+    if not batch:
+        return 0
+
+    subj_name = batch.get("subject_name", "Предмет")
+    seminar_date = batch.get("seminar_date", "—")
+    users = await get_all_users(config.DB_PATH)
+
+    broadcast_text = (
+        f"🔥 <b>ВЫЛОЖЕНЫ ТЕМЫ ДОКЛАДОВ!</b> 🔥\n\n"
+        f"Староста открыл запись на доклады по предмету «<b>{html.escape(subj_name)}</b>»!\n"
+        f"🗓 <b>Дата семинара:</b> <code>{html.escape(seminar_date)}</code>\n\n"
+        "⚡ <i>Скорее заходите в раздел «Доклады», чтобы занять тему первым!</i>"
+    )
+
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎤 Перейти к темам докладов",
+                    callback_data=f"rep_view_batch:{batch_id}",
+                )
+            ]
+        ]
+    )
+
+    sent_count = 0
+    for user in users:
+        tg_id = user["telegram_id"]
+        try:
+            await bot.send_message(chat_id=tg_id, text=broadcast_text, reply_markup=markup)
+            sent_count += 1
+        except Exception as e:
+            logger.debug("Не удалось доставить рассылку пользователю %s: %s", tg_id, e)
+
+    logger.info("Рассылка о дропе #%s успешно отправлена %d пользователям.", batch_id, sent_count)
+    return sent_count
+
+
 async def publish_report_job(bot: Optional[Bot], batch_id: int) -> None:
     """Публикация партии докладов по наступлению назначенного случайного времени."""
     logger.info("Сработал триггер публикации докладов для batch_id=%s", batch_id)
@@ -66,20 +111,9 @@ async def publish_report_job(bot: Optional[Bot], batch_id: int) -> None:
         await publish_report_batch(batch_id, config.DB_PATH)
         logger.info("Партия докладов %s успешно помечена как опубликованная.", batch_id)
 
-        # 2. Уведомление старосты о состоявшемся дропе
-        if bot and config.ADMIN_IDS:
-            subj_name = batch.get("subject_name", "Предмет")
-            msg = (
-                f"🔥 <b>Состоялся дроп докладов!</b>\n\n"
-                f"Предмет: <b>{subj_name}</b>\n"
-                f"Дата семинара: <code>{batch.get('seminar_date')}</code>\n\n"
-                "Темы стали доступны для записи студентам."
-            )
-            for admin_id in config.ADMIN_IDS:
-                try:
-                    await bot.send_message(chat_id=admin_id, text=msg)
-                except Exception as e:
-                    logger.warning("Не удалось отправить уведомление о дропе старосте %s: %s", admin_id, e)
+        # 2. Массовая рассылка всем студентам учебной группы
+        if bot:
+            await broadcast_report_drop(bot, batch_id)
 
     except Exception as err:
         logger.error("Ошибка при публикации партии докладов %s: %s", batch_id, err, exc_info=True)

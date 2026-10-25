@@ -128,3 +128,88 @@ def get_cancel_reports_keyboard(back_callback: str = "admin_reports_menu") -> In
             ]
         ]
     )
+
+
+def get_student_batch_topics_keyboard(
+    batch_id: int, topics: List[Dict[str, Any]], user_id: int
+) -> InlineKeyboardMarkup:
+    """Генерация клавиатуры выбора темы для студента.
+    
+    Содержит:
+    - Инлайн-кнопки только со СВОБОДНЫМИ номерами тем.
+    - Кнопку «Отказаться от темы», если студент уже взял тему в этой партии.
+    - Кнопки «Обновить» и «К списку предметов».
+    """
+    keyboard: List[List[InlineKeyboardButton]] = []
+
+    # 1. Свободные темы — группируем аккуратно по 4 в ряд
+    free_topic_buttons: List[InlineKeyboardButton] = []
+    user_claimed_topic_id = None
+    user_claimed_topic_num = None
+
+    for t in topics:
+        topic_uid = t.get("user_id")
+        if topic_uid == user_id:
+            user_claimed_topic_id = t["id"]
+            user_claimed_topic_num = t["topic_number"]
+        elif topic_uid is None:
+            num = t["topic_number"]
+            free_topic_buttons.append(
+                InlineKeyboardButton(
+                    text=f"№{num}",
+                    callback_data=f"rep_claim:{t['id']}:{batch_id}",
+                )
+            )
+
+    # Разбиваем кнопки свободных тем по 4 в ряд
+    chunk_size = 4
+    for i in range(0, len(free_topic_buttons), chunk_size):
+        keyboard.append(free_topic_buttons[i : i + chunk_size])
+
+    # 2. Если студент уже занял тему в этой партии, показываем кнопку отказа
+    if user_claimed_topic_id is not None:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"❌ Отказаться от своей темы №{user_claimed_topic_num}",
+                callback_data=f"rep_unclaim:{user_claimed_topic_id}:{batch_id}",
+            )
+        ])
+
+    # 3. Сервисные кнопки
+    keyboard.append([
+        InlineKeyboardButton(
+            text="🔄 Обновить",
+            callback_data=f"rep_refresh:{batch_id}",
+        ),
+        InlineKeyboardButton(
+            text="« К предметам",
+            callback_data="rep_list_subjects",
+        ),
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_student_batches_choice_keyboard(batches: List[Dict[str, Any]]) -> InlineKeyboardMarkup:
+    """Клавиатура выбора партии докладов по дате семинара для студента."""
+    keyboard: List[List[InlineKeyboardButton]] = []
+
+    for b in batches:
+        sem_date = str(b.get("seminar_date", "—"))
+        batch_id = b["id"]
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"🗓 Семинар на {sem_date}",
+                callback_data=f"rep_view_batch:{batch_id}",
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            text="« Назад к предметам",
+            callback_data="rep_list_subjects",
+        )
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
