@@ -357,6 +357,35 @@ async def delete_homework(homework_id: int, db_path: Optional[str] = None) -> bo
         return cursor.rowcount > 0
 
 
+async def update_homework(
+    homework_id: int,
+    due_date: Optional[str] = None,
+    task_text: Optional[str] = None,
+    db_path: Optional[str] = None,
+) -> bool:
+    """Обновить дедлайн и/или текст домашнего задания."""
+    if due_date is None and task_text is None:
+        return False
+
+    fields = []
+    values: List[Any] = []
+    if due_date is not None:
+        fields.append("due_date = ?")
+        values.append(due_date)
+    if task_text is not None:
+        fields.append("task_text = ?")
+        values.append(task_text)
+
+    values.append(homework_id)
+    set_clause = ", ".join(fields)
+    query = f"UPDATE homework SET {set_clause} WHERE id = ?;"
+
+    async with get_connection(db_path) as db:
+        cursor = await db.execute(query, tuple(values))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 # =====================================================================
 # Функции работы с докладами (report_batches & report_topics)
 # =====================================================================

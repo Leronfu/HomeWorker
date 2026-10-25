@@ -11,7 +11,13 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import BOT_TOKEN, DB_PATH
 from bot.database import init_db
-from bot.handlers import admin_schedule_router, schedule_router, start_router
+from bot.handlers import (
+    admin_homework_router,
+    admin_schedule_router,
+    homework_router,
+    schedule_router,
+    start_router,
+)
 from bot.utils import setup_scheduler
 
 # Настройка красивого и понятного логирования
@@ -51,6 +57,8 @@ async def main() -> None:
     dp.include_router(start_router)
     dp.include_router(schedule_router)
     dp.include_router(admin_schedule_router)
+    dp.include_router(homework_router)
+    dp.include_router(admin_homework_router)
 
     # 4. Инициализация и запуск планировщика задач (APScheduler)
     scheduler = setup_scheduler(bot)

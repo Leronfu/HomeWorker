@@ -1,5 +1,7 @@
-"""Вспомогательные утилиты, планировщик и форматирование."""
-
+from bot.utils.homework_helpers import (
+    format_homework_detail_admin,
+    format_homework_list_student,
+)
 from bot.utils.schedule_helpers import (
     WEEKDAYS,
     WEEKDAY_SHORT,
@@ -21,7 +23,10 @@ __all__ = [
     "get_weekday_short",
     "format_schedule_text",
     "format_day_preview",
+    "format_homework_list_student",
+    "format_homework_detail_admin",
     "scheduler",
     "setup_scheduler",
     "rollover_weekly_schedule",
 ]
+

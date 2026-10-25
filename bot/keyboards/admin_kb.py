@@ -16,6 +16,12 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
+                    text="📚 Управление домашними заданиями",
+                    callback_data="admin_hw_menu",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="❌ Закрыть панель",
                     callback_data="admin_close",
                 )
