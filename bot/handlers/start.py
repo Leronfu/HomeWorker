@@ -90,12 +90,7 @@ async def process_full_name(message: Message, state: FSMContext) -> None:
     )
 
 
-# Заглушки для разделов главного меню (для наглядной демонстрации на Шаге 3)
-@router.message(F.text == "📅 Расписание")
-async def stub_schedule(message: Message) -> None:
-    await message.answer("📅 <b>Раздел «Расписание»</b> будет активирован на следующем шаге (Шаг 4 плана разработки).")
-
-
+# Заглушки для будущих разделов главного меню (Шаги 5 и 6–7)
 @router.message(F.text == "📚 Домашнее задание")
 async def stub_homework(message: Message) -> None:
     await message.answer("📚 <b>Раздел «Домашнее задание»</b> будет активирован на Шаге 5 плана разработки.")
@@ -105,11 +100,3 @@ async def stub_homework(message: Message) -> None:
 async def stub_reports(message: Message) -> None:
     await message.answer("🎤 <b>Раздел «Доклады»</b> (честный дроп и бронирование тем) будет активирован на Шагах 6–7.")
 
-
-@router.message(F.text == "⚙️ Панель старосты")
-async def stub_admin_panel(message: Message) -> None:
-    user_id = message.from_user.id
-    if not is_admin(user_id):
-        await message.answer("⛔ У вас нет доступа к панели старосты.")
-        return
-    await message.answer("⚙️ <b>«Панель старосты»</b> будет подключена на этапах реализации управления расписанием и ДЗ.")

@@ -269,8 +269,11 @@ async def copy_next_to_current_week(db_path: Optional[str] = None) -> None:
     Используется планировщиком APScheduler каждую субботу в 15:00.
     """
     async with get_connection(db_path) as db:
-        next_week = await get_schedule("next", db_path)
-        for day in next_week:
+        cursor = await db.execute(
+            "SELECT day_of_week, content FROM schedule WHERE week_type = 'next';"
+        )
+        next_days = await cursor.fetchall()
+        for day in next_days:
             await db.execute(
                 """
                 UPDATE schedule
@@ -282,6 +285,14 @@ async def copy_next_to_current_week(db_path: Optional[str] = None) -> None:
         # Очищаем расписание следующей недели
         await db.execute("UPDATE schedule SET content = '' WHERE week_type = 'next';")
         await db.commit()
+
+
+async def clear_week_schedule(week_type: str, db_path: Optional[str] = None) -> None:
+    """Очистить все дни выбранной недели."""
+    async with get_connection(db_path) as db:
+        await db.execute("UPDATE schedule SET content = '' WHERE week_type = ?;", (week_type,))
+        await db.commit()
+
 
 
 # =====================================================================

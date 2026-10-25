@@ -11,7 +11,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import BOT_TOKEN, DB_PATH
 from bot.database import init_db
-from bot.handlers import start_router
+from bot.handlers import admin_schedule_router, schedule_router, start_router
+from bot.utils import setup_scheduler
 
 # Настройка красивого и понятного логирования
 logging.basicConfig(
@@ -48,13 +49,23 @@ async def main() -> None:
 
     # 3. Регистрация роутеров
     dp.include_router(start_router)
+    dp.include_router(schedule_router)
+    dp.include_router(admin_schedule_router)
 
-    # 4. Удаление вебхуков и запуск поллинга
+    # 4. Инициализация и запуск планировщика задач (APScheduler)
+    scheduler = setup_scheduler(bot)
+    scheduler.start()
+    logger.info("Планировщик фоновых задач APScheduler запущен.")
+
+    # 5. Удаление вебхуков и запуск поллинга
     logger.info("Бот готов к работе и ожидает сообщений!")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+            logger.info("Планировщик задач остановлен.")
         await bot.session.close()
         logger.info("Работа бота завершена.")
 
