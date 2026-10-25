@@ -23,8 +23,12 @@ def _parse_admin_ids(raw_ids: str) -> List[int]:
 
 ADMIN_IDS: List[int] = _parse_admin_ids(os.getenv("ADMIN_IDS", ""))
 
-WEB_HOST: str = os.getenv("WEB_HOST") or os.getenv("IP") or "0.0.0.0"
-raw_port = os.getenv("WEB_PORT") or os.getenv("PORT") or "8080"
+# На облачных серверах (Alwaysdata, Render) переменные PORT и IP имеют наивысший приоритет
+cloud_port = os.getenv("PORT")
+cloud_ip = os.getenv("IP")
+
+WEB_HOST: str = cloud_ip or os.getenv("WEB_HOST") or "0.0.0.0"
+raw_port = cloud_port or os.getenv("WEB_PORT") or "8080"
 WEB_PORT: int = int(str(raw_port).strip())
 WEB_APP_URL: str = os.getenv("WEB_APP_URL", f"http://localhost:{WEB_PORT}").strip()
 
