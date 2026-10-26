@@ -48,7 +48,7 @@ async def rollover_weekly_schedule(bot: Optional[Bot] = None) -> None:
                 "Расписание следующей недели автоматически перенесено на текущую.\n"
                 "Слот «Следующая неделя» очищен и готов к новому заполнению старостой."
             )
-            url = config.WEB_APP_URL or "http://localhost:8080"
+            url = config.get_safe_web_app_url()
             starosta_markup = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
@@ -86,7 +86,7 @@ async def broadcast_report_drop(bot: Bot, batch_id: int) -> int:
         "⚡ <i>Скорее открывайте приложение «Доклады», чтобы занять тему первым!</i>"
     )
 
-    url = config.WEB_APP_URL or "http://localhost:8080"
+    url = config.get_safe_web_app_url()
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -138,7 +138,7 @@ async def notify_admins_report_drop(bot: Bot, batch_id: int, db_path: Optional[s
         "📢 Уведомление разослано студентам группы. Запись на доклады открыта!"
     )
 
-    url = config.WEB_APP_URL or "http://localhost:8080"
+    url = config.get_safe_web_app_url()
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -250,7 +250,7 @@ async def auto_assign_report_batch_job(
     unassigned_count = result.get("unassigned_count", 0)
     remaining_unassigned = result.get("remaining_unassigned", 0)
 
-    url = config.WEB_APP_URL or "http://localhost:8080"
+    url = config.get_safe_web_app_url()
     app_markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [

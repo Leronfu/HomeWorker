@@ -20,7 +20,7 @@ router = Router(name="start_router")
 async def _set_user_menu_button(message: Message, user_id: int) -> None:
     """Установка персональной кнопки меню Telegram (MenuButtonWebApp)."""
     try:
-        url = config.WEB_APP_URL or "http://localhost:8080"
+        url = config.get_safe_web_app_url()
         await message.bot.set_chat_menu_button(
             chat_id=user_id,
             menu_button=MenuButtonWebApp(text="HomeWorker", web_app=WebAppInfo(url=url)),
@@ -114,10 +114,17 @@ async def handle_any_text(message: Message) -> None:
     is_user_admin = is_admin(user_id)
     admin_note = "\n👑 <i>Вам доступен режим старосты внутри приложения.</i>" if is_user_admin else ""
 
-    await message.answer(
-        "🎓 <b>HomeWorker — Психология</b>\n\n"
-        "Все разделы нашей группы (расписание пар, домашние задания, честный дроп тем докладов и управление) "
-        "работают внутри интерактивного <b>Telegram Mini App</b>!\n\n"
-        f"Нажмите кнопку ниже, чтобы открыть приложение 👇{admin_note}",
-        reply_markup=get_webapp_inline_keyboard("📱 Открыть HomeWorker"),
-    )
+    try:
+        await message.answer(
+            "🎓 <b>HomeWorker — Психология</b>\n\n"
+            "Все разделы нашей группы (расписание пар, домашние задания, честный дроп тем докладов и управление) "
+            "работают внутри интерактивного <b>Telegram Mini App</b>!\n\n"
+            f"Нажмите кнопку ниже, чтобы открыть приложение 👇{admin_note}",
+            reply_markup=get_webapp_inline_keyboard("📱 Открыть HomeWorker"),
+        )
+    except Exception as e:
+        logger.warning("Ошибка при отправке сообщения в handle_any_text: %s", e)
+        await message.answer(
+            "🎓 <b>HomeWorker — Психология</b>\n\n"
+            "Приложение доступно по ссылке: https://leronfu.alwaysdata.net"
+        )

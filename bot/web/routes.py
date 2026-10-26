@@ -744,7 +744,7 @@ async def handle_spin_random_topic(request: web.Request) -> web.Response:
             f"<blockquote>{html.escape(topic_text)}</blockquote>\n\n"
             "<i>Тема закреплена за вами. Пожалуйста, подготовьте доклад к семинару!</i>"
         )
-        url = config.WEB_APP_URL or "http://localhost:8080"
+        url = config.get_safe_web_app_url()
         markup = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🎤 Открыть темы в Mini App", web_app=WebAppInfo(url=url))]]
         )

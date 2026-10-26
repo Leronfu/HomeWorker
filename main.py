@@ -91,7 +91,7 @@ async def main() -> None:
     logger.info("Бот готов к работе и ожидает сообщений!")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        url = config.WEB_APP_URL or "http://localhost:8080"
+        url = config.get_safe_web_app_url()
         try:
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(text="HomeWorker", web_app=WebAppInfo(url=url))
