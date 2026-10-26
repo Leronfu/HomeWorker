@@ -157,13 +157,18 @@ class TestReportsAdminModule(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(d_bad)
 
     def test_generate_random_release_datetime(self) -> None:
-        """Проверка генерации случайного времени в дневном окне 10:00 - 20:59."""
+        """Проверка генерации случайного времени строго в окне 12:00:00 - 20:00:00."""
+        from datetime import time
         future_date = date(2026, 11, 20)
-        rand_dt = generate_random_release_datetime(future_date)
-        self.assertEqual(rand_dt.date(), future_date)
-        self.assertGreaterEqual(rand_dt.hour, 10)
-        self.assertLessEqual(rand_dt.hour, 20)
-        self.assertEqual(rand_dt.tzinfo, MSK_TZ)
+
+        # Проверяем 100 генераций для статистической надежности
+        for _ in range(100):
+            rand_dt = generate_random_release_datetime(future_date)
+            self.assertEqual(rand_dt.date(), future_date)
+            self.assertEqual(rand_dt.tzinfo, MSK_TZ)
+            t = rand_dt.time()
+            self.assertGreaterEqual(t, time(12, 0, 0))
+            self.assertLessEqual(t, time(20, 0, 0))
 
     def test_format_report_batch_admin(self) -> None:
         """Проверка карточки предпросмотра партии для старосты."""

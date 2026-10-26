@@ -63,32 +63,33 @@ def parse_release_date(raw_date: str) -> Optional[date]:
 
 
 def generate_random_release_datetime(
-    release_date: date, min_hour: int = 10, max_hour: int = 20
+    release_date: date, min_hour: int = 12, max_hour: int = 20
 ) -> datetime:
     """Генерация случайного времени публикации тем в указанный день.
     
-    Интервал по умолчанию: с 10:00 до 20:59 по московскому времени (МСК),
-    чтобы уведомление не приходило ночью или слишком рано утром.
+    Интервал по умолчанию: строго с 12:00 до 20:00 по московскому времени (МСК),
+    чтобы уведомление отправлялось строго в активное дневное время.
     """
     now_msk = datetime.now(MSK_TZ)
+    min_sec = min_hour * 3600
+    max_sec = max_hour * 3600
 
     # Если публикация назначена на сегодня
     if release_date == now_msk.date():
-        if now_msk.hour >= max_hour:
-            # Если уже вечер текущего дня, ставим через 2 минуты
+        now_sec = now_msk.hour * 3600 + now_msk.minute * 60 + now_msk.second
+        if now_sec >= max_sec:
+            # Если уже вечер текущего дня (после 20:00), ставим через 2 минуты
             return now_msk + timedelta(minutes=2)
-        start_hour = max(min_hour, now_msk.hour)
-        rand_hour = random.randint(start_hour, max_hour)
-        if rand_hour == now_msk.hour:
-            min_minute = min(58, now_msk.minute + 1)
-            rand_minute = random.randint(min_minute, 59)
-        else:
-            rand_minute = random.randint(0, 59)
+        start_sec = max(min_sec, now_sec + 60)
+        if start_sec >= max_sec:
+            return now_msk + timedelta(minutes=2)
+        chosen_sec = random.randint(start_sec, max_sec)
     else:
-        rand_hour = random.randint(min_hour, max_hour)
-        rand_minute = random.randint(0, 59)
+        chosen_sec = random.randint(min_sec, max_sec)
 
-    rand_second = random.randint(0, 59)
+    rand_hour = chosen_sec // 3600
+    rand_minute = (chosen_sec % 3600) // 60
+    rand_second = chosen_sec % 60
     return datetime(
         release_date.year,
         release_date.month,
