@@ -269,8 +269,7 @@ async def process_release_date_input(message: Message, state: FSMContext) -> Non
             f"📚 <b>Предмет:</b> {html.escape(subject_name)}\n"
             f"🗓 <b>Семинар:</b> <code>{html.escape(seminar_date)}</code>\n"
             f"📅 <b>Дата дропа:</b> <code>{release_date_str}</code>\n"
-            f"⏰ <b>Случайное время дропа:</b> <code>{random_dt.strftime('%H:%M:%S')} (МСК)</code>\n"
-            f"<i>(Точное время известно только старосте, студенты увидят темы только в момент дропа!)</i>\n\n"
+            f"⏰ <b>Время дропа:</b> <i>Случайное время засекречено даже от старосты (в интервале 10:00–21:00 МСК)</i>\n\n"
             f"📝 <b>Всего тем:</b> {len(topics)}"
         )
 

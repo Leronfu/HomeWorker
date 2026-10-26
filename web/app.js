@@ -758,7 +758,7 @@
       const isPublished = Boolean(batch.is_published);
       const statusHtml = isPublished
         ? `<span class="status-badge published">🟢 Опубликовано</span>`
-        : `<span class="status-badge pending">⏳ Дроп: ${escapeHtml(batch.release_datetime_random || batch.release_date)}</span>`;
+        : `<span class="status-badge pending">⏳ Дроп: ${escapeHtml(batch.release_date || '')} <i>(время засекречено)</i></span>`;
 
       let adminControlsHtml = '';
       if (state.isAdmin) {
@@ -946,7 +946,8 @@
           subject_name: subj ? subj.name : 'Предмет',
           seminar_date,
           is_published: 0,
-          release_datetime_random: `${release_date}, 14:00 (случайно)`,
+          release_date,
+          release_datetime_random: null,
           topics: topics.map((t, idx) => ({
             id: Date.now() + idx,
             topic_number: idx + 1,

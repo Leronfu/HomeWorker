@@ -172,7 +172,8 @@ class TestReportsAdminModule(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Психология личности", text)
         self.assertIn("15.11.2026", text)
         self.assertIn("Запланирован дроп", text)
-        self.assertIn("14:35:00", text)
+        self.assertNotIn("14:35:00", text)
+        self.assertIn("засекречено", text)
         self.assertIn("1. Теория Фрейда — 🟢 Свободно", text)
         self.assertIn("2. Теория Юнга — ✅ Занято (<b>Иван Иванов</b>)", text)
 

@@ -111,7 +111,7 @@ def format_report_batch_admin(batch: Dict[str, Any], topics: List[Dict[str, Any]
     if is_published:
         status_line = "🟢 <b>Статус: Опубликовано (темы доступны студентам)</b>"
     else:
-        status_line = f"⏳ <b>Статус: Запланирован дроп</b>\n⏰ <b>Время дропа (МСК):</b> <code>{html.escape(release_dt_raw)}</code> <i>(скрыто от группы)</i>"
+        status_line = "⏳ <b>Статус: Запланирован дроп</b>\n⏰ <b>Время дропа:</b> <i>Случайное время засекречено (опубликуется автоматически)</i>"
 
     lines = [
         f"🎤 <b>Партия докладов #{batch['id']}</b>\n",

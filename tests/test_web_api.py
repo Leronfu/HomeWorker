@@ -288,7 +288,21 @@ class TestWebApi(unittest.IsolatedAsyncioTestCase):
         )
         resp_create = await handle_create_reports_batch(req_create)
         self.assertEqual(resp_create.status, 200)
-        batch_id = json.loads(resp_create.text)["batch_id"]
+        create_data = json.loads(resp_create.text)
+        batch_id = create_data["batch_id"]
+        self.assertIsNone(create_data.get("release_datetime_random"))
+        self.assertIn("засекречен", create_data.get("message", ""))
+
+        # Проверяем, что в списке для старосты до публикации точное время также скрыто
+        req_admin_get = self._build_request(
+            "GET",
+            "/api/reports/batches?subject_id=2",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+        )
+        resp_admin_get = await handle_get_reports_batches(req_admin_get)
+        batches_pending = json.loads(resp_admin_get.text)["batches"]
+        self.assertEqual(len(batches_pending), 1)
+        self.assertIsNone(batches_pending[0]["release_datetime_random"])
 
         # 2. Досрочная публикация старостой
         req_pub = self._build_request(

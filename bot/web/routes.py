@@ -344,6 +344,9 @@ async def handle_get_reports_batches(request: web.Request) -> web.Response:
             })
 
         batch_dict = dict(b)
+        # Скрываем точное случайное время дропа даже от старосты/админа, пока партия не опубликована
+        if not b.get("is_published"):
+            batch_dict["release_datetime_random"] = None
         batch_dict["topics"] = topics_formatted
         result.append(batch_dict)
 
@@ -436,8 +439,8 @@ async def handle_create_reports_batch(request: web.Request) -> web.Response:
     return json_response({
         "ok": True,
         "batch_id": batch_id,
-        "release_datetime_random": random_release_str,
-        "message": f"Пул докладов создан! Случайное время публикации: {random_release_str}",
+        "release_datetime_random": None,
+        "message": f"Пул докладов создан! Темы будут опубликованы в случайное засекреченное время ({drop_d.strftime('%d.%m.%Y')})",
     })
 
 
