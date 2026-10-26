@@ -114,9 +114,12 @@ def format_report_batch_admin(batch: Dict[str, Any], topics: List[Dict[str, Any]
     else:
         status_line = "⏳ <b>Статус: Запланирован дроп</b>\n⏰ <b>Время дропа:</b> <i>Случайное время засекречено (опубликуется автоматически)</i>"
 
+    report_type = "👥 Групповой" if batch.get("report_type") == "group" else "👤 Индивидуальный"
+
     lines = [
         f"🎤 <b>Партия докладов #{batch['id']}</b>\n",
         f"📚 <b>Предмет:</b> {subject_name}",
+        f"👥 <b>Формат:</b> {report_type}",
         f"🗓 <b>Дата семинара:</b> <code>{seminar_date}</code>",
         f"📅 <b>Дата дропа:</b> <code>{release_date}</code>",
         status_line,
@@ -127,8 +130,12 @@ def format_report_batch_admin(batch: Dict[str, Any], topics: List[Dict[str, Any]
         num = t.get("topic_number", 1)
         topic_text = html.escape(str(t.get("topic_text", "")))
         student_name = t.get("student_name")
+        group_members = t.get("group_members")
         if student_name:
-            status = f"✅ Занято (<b>{html.escape(student_name)}</b>)"
+            if group_members:
+                status = f"✅ Занято (<b>{html.escape(student_name)}</b>, группа: <i>{html.escape(group_members)}</i>)"
+            else:
+                status = f"✅ Занято (<b>{html.escape(student_name)}</b>)"
         else:
             status = "🟢 Свободно"
         lines.append(f"{num}. {topic_text} — {status}")
@@ -142,12 +149,14 @@ def format_report_batch_student(
     """Форматирование списка тем докладов для студента."""
     subject_name = html.escape(str(batch.get("subject_name", "Предмет")))
     seminar_date = html.escape(str(batch.get("seminar_date", "—")))
+    report_type = "👥 Групповой" if batch.get("report_type") == "group" else "👤 Индивидуальный"
 
     free_count = sum(1 for t in topics if t.get("user_id") is None)
     total_count = len(topics)
 
     lines = [
         f"🎤 <b>Доклады: {subject_name}</b>",
+        f"👥 <b>Формат:</b> {report_type}",
         f"🗓 <b>Дата семинара:</b> <code>{seminar_date}</code>",
         f"📊 <b>Свободно тем:</b> {free_count} из {total_count}\n",
         "📝 <b>Список тем:</b>",
@@ -160,13 +169,20 @@ def format_report_batch_student(
         topic_text = html.escape(str(t.get("topic_text", "")))
         topic_user_id = t.get("user_id")
         student_name = t.get("student_name")
+        group_members = t.get("group_members")
 
         if topic_user_id is not None:
             if user_id and topic_user_id == user_id:
                 user_claimed_number = num
-                status = f"🌟 <b>Занято вами ({html.escape(student_name or 'Вы')})</b>"
+                if group_members:
+                    status = f"🌟 <b>Занято вашей группой:</b> {html.escape(group_members)}"
+                else:
+                    status = f"🌟 <b>Занято вами ({html.escape(student_name or 'Вы')})</b>"
             else:
-                status = f"✅ Занято (<b>{html.escape(student_name or 'Студент')}</b>)"
+                if group_members:
+                    status = f"✅ Занято (<b>{html.escape(student_name or 'Студент')}</b>, группа: <i>{html.escape(group_members)}</i>)"
+                else:
+                    status = f"✅ Занято (<b>{html.escape(student_name or 'Студент')}</b>)"
         else:
             status = "🟢 Свободно"
 

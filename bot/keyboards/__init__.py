@@ -23,6 +23,7 @@ from bot.keyboards.reports_kb import (
     get_admin_confirm_delete_batch_keyboard,
     get_admin_reports_menu_keyboard,
     get_cancel_reports_keyboard,
+    get_report_type_keyboard,
     get_student_batch_topics_keyboard,
     get_student_batches_choice_keyboard,
 )
@@ -51,6 +52,7 @@ __all__ = [
     "get_admin_batch_detail_keyboard",
     "get_admin_confirm_delete_batch_keyboard",
     "get_cancel_reports_keyboard",
+    "get_report_type_keyboard",
     "get_student_batch_topics_keyboard",
     "get_student_batches_choice_keyboard",
 ]

@@ -282,13 +282,21 @@
           </div>
         </div>
         <div class="form-group">
+          <label for="reportTypeSelect" class="form-label">👥 Формат доклада:</label>
+          <select id="reportTypeSelect" class="form-select">
+            <option value="individual">👤 Индивидуальный (для одного студента)</option>
+            <option value="group">👥 Групповой (для группы студентов)</option>
+          </select>
+          <small class="form-hint">В групповых докладах при записи студент вписывает всех участников своей группы.</small>
+        </div>
+        <div class="form-group">
           <label for="reportSeminarDate" class="form-label">Дата семинара (выступления):</label>
           <input type="text" id="reportSeminarDate" class="form-input" placeholder="Например: 15 декабря" required>
         </div>
         <div class="form-group">
           <label for="reportReleaseDate" class="form-label">Дата публикации (дропа для группы):</label>
           <input type="text" id="reportReleaseDate" class="form-input" placeholder="ДД.ММ.ГГГГ (например: 10.12.2026)" required>
-          <small class="form-hint">Бот сам выберет случайное время в течение этого дня (10:00–21:00 МСК).</small>
+          <small class="form-hint">Бот сам выберет случайное время в течение этого дня (12:00–20:00 МСК).</small>
         </div>
         <div class="form-group">
           <label for="reportTopicsText" class="form-label">Список тем/вопросов (каждая тема с новой строки):</label>
@@ -297,6 +305,29 @@
         <div class="modal-actions">
           <button class="btn btn-secondary" data-close-modal="modalReportBatch" type="button">Отмена</button>
           <button class="btn btn-primary" type="submit">Запланировать дроп</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Модальное окно 4: Запись на групповой доклад -->
+  <div id="modalClaimGroupTopic" class="modal-backdrop hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title">👥 Запись группы на доклад</h3>
+        <button class="modal-close-btn" data-close-modal="modalClaimGroupTopic" type="button">&times;</button>
+      </div>
+      <form id="formClaimGroupTopic" class="modal-form">
+        <input type="hidden" id="claimGroupTopicId">
+        <p id="claimGroupTopicTitle" style="font-size: 14px; font-weight: 500; margin-bottom: 12px; color: var(--tg-theme-text-color); line-height: 1.4;"></p>
+        <div class="form-group">
+          <label for="claimGroupMembersInput" class="form-label">Участники вашей группы:</label>
+          <textarea id="claimGroupMembersInput" class="form-textarea" rows="3" placeholder="Иван Иванов, Петр Сидоров, Анна Смирнова" required></textarea>
+          <small class="form-hint">Укажите Имена и Фамилии всех студентов, которые готовят доклад вместе с вами.</small>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-close-modal="modalClaimGroupTopic" type="button">Отмена</button>
+          <button class="btn btn-primary" type="submit">Занять для группы</button>
         </div>
       </form>
     </div>

@@ -4,6 +4,7 @@ import html
 import logging
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot import config
@@ -17,6 +18,7 @@ from bot.database import (
     get_user,
     unclaim_topic,
 )
+from bot.handlers.states import ReportStudentStates
 from bot.keyboards import (
     get_student_batch_topics_keyboard,
     get_student_batches_choice_keyboard,
@@ -169,7 +171,7 @@ async def view_report_batch_topics(callback: CallbackQuery) -> None:
 # =====================================================================
 
 @router.callback_query(F.data.startswith("rep_claim:"))
-async def process_claim_topic(callback: CallbackQuery) -> None:
+async def process_claim_topic(callback: CallbackQuery, state: Optional[FSMContext] = None) -> None:
     """Обработка нажатия на кнопку свободной темы."""
     user_id = callback.from_user.id
     parts = callback.data.split(":")
@@ -197,8 +199,32 @@ async def process_claim_topic(callback: CallbackQuery) -> None:
             )
             return
 
-        # 3. Атомарное закрепление в БД
-        success = await claim_topic(topic_id, user_id, config.DB_PATH)
+        batch = await get_batch_by_id(batch_id, config.DB_PATH)
+        if not batch:
+            await callback.answer("Партия докладов не найдена.", show_alert=True)
+            return
+
+        # Если доклад групповой, запрашиваем список участников группы через FSM
+        if batch.get("report_type") == "group":
+            topic = next((t for t in current_topics if t.get("id") == topic_id), None)
+            topic_text = topic["topic_text"] if topic else "Выбранная тема"
+
+            await state.set_state(ReportStudentStates.waiting_for_group_members)
+            await state.update_data(topic_id=topic_id, batch_id=batch_id)
+
+            prompt = (
+                f"👥 <b>Вы выбрали групповой доклад!</b>\n"
+                f"📝 <b>Тема:</b> «{html.escape(topic_text)}»\n\n"
+                "Отправьте сообщением <b>Имена и Фамилии всех участников вашей группы</b> (через запятую):\n"
+                f"<i>Например: {html.escape(user['full_name'])}, Петр Сидоров</i>"
+            )
+            if callback.message:
+                await callback.message.answer(text=prompt)
+            await callback.answer()
+            return
+
+        # 3. Атомарное закрепление индивидуального доклада в БД
+        success = await claim_topic(topic_id, user_id, db_path=config.DB_PATH)
 
         if not success:
             # Кто-то успел на долю секунды раньше!
@@ -214,7 +240,6 @@ async def process_claim_topic(callback: CallbackQuery) -> None:
             )
 
         # 4. Мгновенно обновляем экран
-        batch = await get_batch_by_id(batch_id, config.DB_PATH)
         updated_topics = await get_batch_topics(batch_id, config.DB_PATH)
 
         if callback.message and batch:
@@ -227,6 +252,39 @@ async def process_claim_topic(callback: CallbackQuery) -> None:
     except Exception as e:
         logger.error("Ошибка при бронировании темы #%s: %s", topic_id, e, exc_info=True)
         await callback.answer("⚠️ Произошла ошибка при бронировании темы.", show_alert=True)
+
+
+@router.message(ReportStudentStates.waiting_for_group_members, F.text)
+async def process_group_members_input(message: Message, state: FSMContext) -> None:
+    """Обработка ввода состава группы студентом при записи на групповой доклад."""
+    user_id = message.from_user.id
+    members_text = message.text.strip()
+    if not members_text or len(members_text) < 3:
+        await message.answer("⚠️ Пожалуйста, введите корректный список участников группы (например: Иван Иванов, Петр Сидоров):")
+        return
+
+    data = await state.get_data()
+    topic_id = data.get("topic_id")
+    batch_id = data.get("batch_id")
+    await state.clear()
+
+    if not topic_id or not batch_id:
+        await message.answer("⚠️ Сессия записи устарела. Пожалуйста, откройте доклады заново.")
+        return
+
+    success = await claim_topic(topic_id, user_id, group_members=members_text, db_path=config.DB_PATH)
+    if not success:
+        await message.answer(
+            "⚡ <b>Упс! Эту тему только что забрал другой студент или группа!</b>\n"
+            "Пожалуйста, перейдите в раздел «🎤 Доклады» и выберите другую свободную тему."
+        )
+        return
+
+    await message.answer(
+        f"🎉 <b>Групповой доклад успешно закреплен за вашей группой!</b>\n\n"
+        f"👥 <b>Участники группы:</b>\n{html.escape(members_text)}\n\n"
+        "<i>Вы можете посмотреть статус темы в разделе «🎤 Доклады».</i>"
+    )
 
 
 # =====================================================================

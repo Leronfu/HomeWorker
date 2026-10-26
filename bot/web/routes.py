@@ -376,6 +376,7 @@ async def handle_get_reports_batches(request: web.Request) -> web.Response:
                 "topic_text": t["topic_text"],
                 "user_id": t["user_id"],
                 "student_name": t.get("student_name") or (t.get("student_username") and f"@{t['student_username']}"),
+                "group_members": t.get("group_members"),
                 "is_taken": bool(t["user_id"]),
                 "is_mine": bool(t["user_id"] and t["user_id"] == user["telegram_id"]),
             })
@@ -448,12 +449,17 @@ async def handle_create_reports_batch(request: web.Request) -> web.Response:
     random_release_dt = generate_random_release_datetime(drop_d)
     random_release_str = random_release_dt.strftime("%Y-%m-%d %H:%M:%S")
 
+    report_type = str(data.get("report_type", "individual")).strip().lower()
+    if report_type not in ("individual", "group"):
+        report_type = "individual"
+
     batch_id = await create_report_batch(
         subject_id=int(subject_id),
         seminar_date=seminar_date,
         release_date=drop_d.strftime("%Y-%m-%d"),
         release_datetime_random=random_release_str,
         topics=topics_list,
+        report_type=report_type,
     )
 
     # Ставим задачу в планировщик, если он доступен
@@ -521,7 +527,20 @@ async def handle_claim_topic(request: web.Request) -> web.Response:
     user = await require_auth(request)
     topic_id = int(request.match_info["id"])
 
-    claimed = await claim_topic(topic_id, user["telegram_id"])
+    group_members = None
+    try:
+        if request.can_read_body:
+            body = await request.json()
+            raw_members = body.get("group_members")
+            if isinstance(raw_members, list):
+                clean_list = [str(m).strip() for m in raw_members if str(m).strip()]
+                group_members = ", ".join(clean_list) if clean_list else None
+            elif isinstance(raw_members, str) and raw_members.strip():
+                group_members = raw_members.strip()
+    except Exception:
+        pass
+
+    claimed = await claim_topic(topic_id, user["telegram_id"], group_members=group_members)
     if not claimed:
         return json_response({"ok": False, "error": "Упс! Эту тему только что занял другой студент"}, 409)
 

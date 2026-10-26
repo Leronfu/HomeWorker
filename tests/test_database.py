@@ -245,6 +245,42 @@ class TestDatabase(unittest.IsolatedAsyncioTestCase):
         ok_forced, _ = await delete_subject(subj_id, force=True, db_path=TEST_DB_PATH)
         self.assertTrue(ok_forced)
 
+    async def test_group_reports_and_claiming(self) -> None:
+        """Проверка создания группового доклада и сохранения участников группы."""
+        await add_or_update_user(telegram_id=555, username="capt", full_name="Капитан Группы", db_path=TEST_DB_PATH)
+        
+        batch_id = await create_report_batch(
+            subject_id=1,
+            seminar_date="28.11.2026",
+            release_date="25.11.2026",
+            release_datetime_random="2026-11-25 14:00:00",
+            topics=["Групповой кейс: Социальная фасилитация"],
+            report_type="group",
+            db_path=TEST_DB_PATH,
+        )
+        self.assertGreater(batch_id, 0)
+
+        topics = await get_batch_topics(batch_id, TEST_DB_PATH)
+        self.assertEqual(len(topics), 1)
+        topic_id = topics[0]["id"]
+        self.assertIsNone(topics[0]["group_members"])
+
+        # Закрепляем тему с указанием участников
+        members = "Капитан Группы, Иван Иванов, Мария Петрова"
+        claimed = await claim_topic(topic_id, 555, TEST_DB_PATH, group_members=members)
+        self.assertTrue(claimed)
+
+        updated_topics = await get_batch_topics(batch_id, TEST_DB_PATH)
+        self.assertEqual(updated_topics[0]["user_id"], 555)
+        self.assertEqual(updated_topics[0]["group_members"], members)
+
+        # Отказ от темы очищает group_members
+        unclaimed = await unclaim_topic(topic_id, 555, TEST_DB_PATH)
+        self.assertTrue(unclaimed)
+
+        topics_after = await get_batch_topics(batch_id, TEST_DB_PATH)
+        self.assertIsNone(topics_after[0]["user_id"])
+        self.assertIsNone(topics_after[0]["group_members"])
 
 
 if __name__ == "__main__":

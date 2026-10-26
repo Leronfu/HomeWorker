@@ -476,6 +476,85 @@ class TestWebApi(unittest.IsolatedAsyncioTestCase):
         resp_js = await match_js.handler(req_js)
         self.assertEqual(resp_js.status, 200)
 
+    async def test_reports_group_api(self):
+        """Проверка API создания группового доклада и сохранения участников группы."""
+        # 1. Создание группового пула
+        req_create = self._build_request(
+            "POST",
+            "/api/reports/batches",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            json_data={
+                "subject_id": 1,
+                "seminar_date": "30.11.2026",
+                "release_date": "29.11.2026",
+                "report_type": "group",
+                "topics": ["Кейс по мотивации в команде"],
+            },
+        )
+        resp_create = await handle_create_reports_batch(req_create)
+        self.assertEqual(resp_create.status, 200)
+        batch_id = json.loads(resp_create.text)["batch_id"]
+
+        # 2. Публикация
+        req_pub = self._build_request(
+            "POST",
+            f"/api/reports/batches/{batch_id}/publish",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            match_info={"id": str(batch_id)},
+        )
+        resp_pub = await handle_publish_reports_batch(req_pub)
+        self.assertEqual(resp_pub.status, 200)
+
+        # 3. Проверка типа доклада в GET /api/reports/batches
+        req_get = self._build_request(
+            "GET",
+            "/api/reports/batches?subject_id=1",
+            headers={"X-Dev-Telegram-Id": str(TEST_STUDENT_ID)},
+        )
+        resp_get = await handle_get_reports_batches(req_get)
+        self.assertEqual(resp_get.status, 200)
+        batches = json.loads(resp_get.text)["batches"]
+        cur_batch = next((b for b in batches if b["id"] == batch_id), None)
+        self.assertIsNotNone(cur_batch)
+        self.assertEqual(cur_batch["report_type"], "group")
+        topic = cur_batch["topics"][0]
+        topic_id = topic["id"]
+
+        # 4. Запись на групповой доклад с указанием участников
+        members = "Студент Тестовый, Анна Смирнова, Дмитрий Волков"
+        req_claim = self._build_request(
+            "POST",
+            f"/api/reports/topics/{topic_id}/claim",
+            headers={"X-Dev-Telegram-Id": str(TEST_STUDENT_ID)},
+            match_info={"id": str(topic_id)},
+            json_data={"group_members": members},
+        )
+        resp_claim = await handle_claim_topic(req_claim)
+        self.assertEqual(resp_claim.status, 200)
+
+        # 5. Проверка сохранения списка участников в ответе GET
+        resp_get2 = await handle_get_reports_batches(req_get)
+        batches2 = json.loads(resp_get2.text)["batches"]
+        cur_batch2 = next((b for b in batches2 if b["id"] == batch_id), None)
+        self.assertEqual(cur_batch2["topics"][0]["group_members"], members)
+        self.assertTrue(cur_batch2["topics"][0]["is_taken"])
+
+        # 6. Отказ от темы очищает участников
+        req_unclaim = self._build_request(
+            "POST",
+            f"/api/reports/topics/{topic_id}/unclaim",
+            headers={"X-Dev-Telegram-Id": str(TEST_STUDENT_ID)},
+            match_info={"id": str(topic_id)},
+        )
+        resp_unclaim = await handle_unclaim_topic(req_unclaim)
+        self.assertEqual(resp_unclaim.status, 200)
+
+        resp_get3 = await handle_get_reports_batches(req_get)
+        batches3 = json.loads(resp_get3.text)["batches"]
+        cur_batch3 = next((b for b in batches3 if b["id"] == batch_id), None)
+        self.assertIsNone(cur_batch3["topics"][0]["group_members"])
+        self.assertFalse(cur_batch3["topics"][0]["is_taken"])
+
 
 if __name__ == "__main__":
     unittest.main()

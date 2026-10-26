@@ -130,6 +130,32 @@ def get_cancel_reports_keyboard(back_callback: str = "admin_reports_menu") -> In
     )
 
 
+def get_report_type_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора типа доклада: индивидуальный или групповой."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👤 Индивидуальный (для 1 студента)",
+                    callback_data="arep_type:individual",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👥 Групповой (для группы студентов)",
+                    callback_data="arep_type:group",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data="arep_menu_add",
+                )
+            ],
+        ]
+    )
+
+
 def get_student_batch_topics_keyboard(
     batch_id: int, topics: List[Dict[str, Any]], user_id: int
 ) -> InlineKeyboardMarkup:

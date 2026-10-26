@@ -49,6 +49,7 @@ from bot.handlers.admin_reports import (
     process_custom_subject_input_for_reports,
     process_delete_subject_action,
     process_release_date_input,
+    process_report_type_choice,
     process_seminar_date_input,
     process_topics_list_input,
     ask_custom_subject_for_reports,
@@ -236,9 +237,14 @@ class TestReportsAdminModule(unittest.IsolatedAsyncioTestCase):
         # 3. Выбор предмета #1 («Психология эмоций и мотивации»)
         cb_pick_subj = self._create_mock_callback(admin_id, "arep_pick_subj:1")
         await start_report_fsm_seminar_date(cb_pick_subj, fsm_ctx)
-        self.assertEqual(await fsm_ctx.get_state(), ReportAdminStates.waiting_for_seminar_date.state)
+        self.assertEqual(await fsm_ctx.get_state(), ReportAdminStates.waiting_for_report_type.state)
         cb_pick_subj.message.edit_text.assert_called_once()
-        self.assertIn("Шаг 1 из 3", cb_pick_subj.message.edit_text.call_args[1]["text"])
+        self.assertIn("Шаг 1 из 4", cb_pick_subj.message.edit_text.call_args[1]["text"])
+
+        # 3.1. Выбор формата доклада (индивидуальный)
+        cb_type = self._create_mock_callback(admin_id, "arep_type:individual")
+        await process_report_type_choice(cb_type, fsm_ctx)
+        self.assertEqual(await fsm_ctx.get_state(), ReportAdminStates.waiting_for_seminar_date.state)
 
         # 4. Ввод даты семинара
         msg_sem = self._create_mock_message(admin_id, "25 ноября 2026")
@@ -561,10 +567,15 @@ class TestReportsAdminModule(unittest.IsolatedAsyncioTestCase):
         # 3. Ввод валидного названия
         msg_valid = self._create_mock_message(999, "Нейробиология поведения")
         await process_custom_subject_input_for_reports(msg_valid, state)
-        self.assertEqual(await state.get_state(), ReportAdminStates.waiting_for_seminar_date)
+        self.assertEqual(await state.get_state(), ReportAdminStates.waiting_for_report_type)
         data = await state.get_data()
         self.assertEqual(data["subject_name"], "Нейробиология поведения")
         self.assertGreater(data["subject_id"], 0)
+
+        # 3.1 Выбор формата
+        cb_type = self._create_mock_callback(999, "arep_type:individual")
+        await process_report_type_choice(cb_type, state)
+        self.assertEqual(await state.get_state(), ReportAdminStates.waiting_for_seminar_date)
 
     async def test_bot_delete_subject_flow(self) -> None:
         """Проверка меню и действия удаления предмета через бота."""

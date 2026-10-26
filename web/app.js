@@ -126,8 +126,13 @@
     reportManualSubjectWrap: document.getElementById('reportManualSubjectWrap'),
     reportManualSubjectInput: document.getElementById('reportManualSubjectInput'),
     reportSeminarDate: document.getElementById('reportSeminarDate'),
-    reportReleaseDate: document.getElementById('reportReleaseDate'),
     reportTopicsText: document.getElementById('reportTopicsText'),
+    reportTypeSelect: document.getElementById('reportTypeSelect'),
+    modalClaimGroupTopic: document.getElementById('modalClaimGroupTopic'),
+    formClaimGroupTopic: document.getElementById('formClaimGroupTopic'),
+    claimGroupTopicId: document.getElementById('claimGroupTopicId'),
+    claimGroupTopicTitle: document.getElementById('claimGroupTopicTitle'),
+    claimGroupMembersInput: document.getElementById('claimGroupMembersInput'),
   };
 
   // Виброотклик Telegram (Haptic Feedback)
@@ -767,6 +772,11 @@
       card.className = 'batch-card';
 
       const isPublished = Boolean(batch.is_published);
+      const isGroup = batch.report_type === 'group';
+      const typeBadge = isGroup
+        ? `<span class="status-badge" style="background: rgba(138, 43, 226, 0.15); color: #c084fc; border: 1px solid rgba(138, 43, 226, 0.3);">👥 Групповой</span>`
+        : `<span class="status-badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">👤 Индивидуальный</span>`;
+
       const statusHtml = isPublished
         ? `<span class="status-badge published">🟢 Опубликовано</span>`
         : `<span class="status-badge pending">⏳ Дроп: ${escapeHtml(batch.release_date || '')} <i>(время засекречено)</i></span>`;
@@ -791,17 +801,21 @@
         let statusLabel = '';
         let actionBtn = '';
 
+        const groupMembersHtml = t.group_members
+          ? `<div class="topic-group-members" style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">👥 Состав: <i>${escapeHtml(t.group_members)}</i></div>`
+          : '';
+
         if (t.is_mine) {
           itemClass += ' mine';
-          statusLabel = `<span class="topic-status-label mine">⭐️ Ваша тема</span>`;
+          statusLabel = `<span class="topic-status-label mine">⭐️ Ваша тема</span>${groupMembersHtml}`;
           actionBtn = `<button class="btn btn-danger-outline btn-sm btn-unclaim-topic" data-batch-id="${batch.id}" data-topic-id="${t.id}" type="button">Отказаться</button>`;
         } else if (t.is_taken) {
           itemClass += ' taken';
-          statusLabel = `<span class="topic-status-label taken">✅ Занято: <b>${escapeHtml(t.student_name || 'Студент')}</b></span>`;
+          statusLabel = `<span class="topic-status-label taken">✅ Занято: <b>${escapeHtml(t.student_name || 'Студент')}</b></span>${groupMembersHtml}`;
         } else {
           statusLabel = `<span class="topic-status-label free">🟢 Свободно</span>`;
           if (isPublished) {
-            actionBtn = `<button class="btn btn-primary btn-sm btn-claim-topic" data-batch-id="${batch.id}" data-topic-id="${t.id}" type="button">Занять тему</button>`;
+            actionBtn = `<button class="btn btn-primary btn-sm btn-claim-topic" data-batch-id="${batch.id}" data-topic-id="${t.id}" data-report-type="${batch.report_type || 'individual'}" data-topic-title="${escapeHtml(t.topic_text)}" type="button">Занять тему</button>`;
           }
         }
 
@@ -823,7 +837,10 @@
       card.innerHTML = `
         <div class="batch-header">
           <div>
-            <h3 class="batch-subject">🎤 ${escapeHtml(batch.subject_name || 'Предмет')}</h3>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+              <h3 class="batch-subject" style="margin: 0;">🎤 ${escapeHtml(batch.subject_name || 'Предмет')}</h3>
+              ${typeBadge}
+            </div>
             <p class="batch-seminar-date">🗓 Семинар: <b>${escapeHtml(batch.seminar_date)}</b></p>
           </div>
           ${statusHtml}
@@ -836,8 +853,23 @@
       card.querySelectorAll('.btn-claim-topic').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const topicId = btn.getAttribute('data-topic-id');
+          const reportType = btn.getAttribute('data-report-type');
+          const topicTitle = btn.getAttribute('data-topic-title');
+
+          if (reportType === 'group') {
+            if (elements.claimGroupTopicId) elements.claimGroupTopicId.value = topicId;
+            if (elements.claimGroupTopicTitle) {
+              elements.claimGroupTopicTitle.textContent = `Тема: «${topicTitle}»`;
+            }
+            if (elements.claimGroupMembersInput) {
+              elements.claimGroupMembersInput.value = state.user?.full_name || '';
+            }
+            openModal(elements.modalClaimGroupTopic);
+            return;
+          }
+
           try {
-            await apiFetch(`/api/reports/topics/${topicId}/claim`, { method: 'POST' });
+            await apiFetch(`/api/reports/topics/${topicId}/claim`, { method: 'POST', body: JSON.stringify({}) });
             triggerHaptic('success');
             showToast('Поздравляем! Вы успешно заняли тему.', 'success');
           } catch (err) {
@@ -999,7 +1031,8 @@
         return;
       }
 
-      let payload = { seminar_date, release_date, topics };
+      const report_type = elements.reportTypeSelect ? elements.reportTypeSelect.value : 'individual';
+      let payload = { seminar_date, release_date, topics, report_type };
       if (isManual) {
         if (!manualSubjectName) {
           showToast('Введите название нового предмета', 'warning');
@@ -1031,6 +1064,7 @@
           subject_id: payload.subject_id || 9999,
           subject_name: subjName,
           seminar_date,
+          report_type,
           is_published: 0,
           release_date,
           release_datetime_random: null,
@@ -1046,6 +1080,30 @@
         showToast('Пул запланирован (демо-режим)', 'info');
       }
       closeModal(elements.modalReportBatch);
+      loadReports();
+    });
+
+    elements.formClaimGroupTopic?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const topicId = elements.claimGroupTopicId?.value;
+      const groupMembers = elements.claimGroupMembersInput?.value.trim();
+
+      if (!topicId || !groupMembers) {
+        showToast('Пожалуйста, введите участников вашей группы', 'warning');
+        return;
+      }
+
+      try {
+        const res = await apiFetch(`/api/reports/topics/${topicId}/claim`, {
+          method: 'POST',
+          body: JSON.stringify({ group_members: groupMembers }),
+        });
+        triggerHaptic('success');
+        showToast(res.message || 'Тема успешно закреплена за вашей группой!', 'success');
+      } catch (err) {
+        showToast(err.message || 'Ошибка закрепления темы', 'error');
+      }
+      closeModal(elements.modalClaimGroupTopic);
       loadReports();
     });
   }

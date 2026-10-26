@@ -105,6 +105,7 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 seminar_date TEXT NOT NULL,
                 release_date TEXT NOT NULL,
                 release_datetime_random TEXT NOT NULL,
+                report_type TEXT NOT NULL DEFAULT 'individual',
                 is_published BOOLEAN NOT NULL DEFAULT 0,
                 is_auto_assigned BOOLEAN NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -121,14 +122,25 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 topic_number INTEGER NOT NULL,
                 topic_text TEXT NOT NULL,
                 user_id INTEGER REFERENCES users(telegram_id) ON DELETE SET NULL,
+                group_members TEXT,
                 assigned_at TIMESTAMP
             );
             """
         )
 
-        # Миграция: добавление колонки is_auto_assigned для существующих БД
+        # Миграции для существующих БД
         try:
             await db.execute("ALTER TABLE report_batches ADD COLUMN is_auto_assigned BOOLEAN NOT NULL DEFAULT 0;")
+        except Exception:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE report_batches ADD COLUMN report_type TEXT NOT NULL DEFAULT 'individual';")
+        except Exception:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE report_topics ADD COLUMN group_members TEXT;")
         except Exception:
             pass
 
@@ -496,16 +508,18 @@ async def create_report_batch(
     release_date: str,
     release_datetime_random: str,
     topics: List[str],
+    report_type: str = "individual",
     db_path: Optional[str] = None,
 ) -> int:
-    """Создать новую партию докладов с темами."""
+    """Создать новую партию докладов с темами (индивидуальную или групповую)."""
+    clean_type = "group" if str(report_type).strip().lower() == "group" else "individual"
     async with get_connection(db_path) as db:
         cursor = await db.execute(
             """
-            INSERT INTO report_batches (subject_id, seminar_date, release_date, release_datetime_random)
-            VALUES (?, ?, ?, ?);
+            INSERT INTO report_batches (subject_id, seminar_date, release_date, release_datetime_random, report_type)
+            VALUES (?, ?, ?, ?, ?);
             """,
-            (subject_id, seminar_date, release_date, release_datetime_random),
+            (subject_id, seminar_date, release_date, release_datetime_random, clean_type),
         )
         batch_id = cursor.lastrowid
         if not batch_id:
@@ -608,12 +622,13 @@ async def get_batch_by_id(batch_id: int, db_path: Optional[str] = None) -> Optio
 
 
 async def get_batch_topics(batch_id: int, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Получить список всех тем партии с информацией о занявших студентах."""
+    """Получить список всех тем партии с информацией о занявших студентах и участниках группы."""
     async with get_connection(db_path) as db:
         cursor = await db.execute(
             """
-            SELECT t.*, u.full_name as student_name, u.username as student_username
+            SELECT t.*, b.report_type, u.full_name as student_name, u.username as student_username
             FROM report_topics t
+            JOIN report_batches b ON t.batch_id = b.id
             LEFT JOIN users u ON t.user_id = u.telegram_id
             WHERE t.batch_id = ?
             ORDER BY t.topic_number ASC;
@@ -624,20 +639,27 @@ async def get_batch_topics(batch_id: int, db_path: Optional[str] = None) -> List
         return [dict(row) for row in rows]
 
 
-async def claim_topic(topic_id: int, user_telegram_id: int, db_path: Optional[str] = None) -> bool:
+async def claim_topic(
+    topic_id: int,
+    user_telegram_id: int,
+    db_path: Optional[str] = None,
+    group_members: Optional[str] = None,
+) -> bool:
     """Атомарно закрепить тему за студентом (с защитой от конкурентной записи).
     
+    Для групповых докладов сохраняет список участников group_members.
     Возвращает True, если тема успешно занята этим студентом.
     Возвращает False, если тема уже кем-то занята.
     """
+    clean_members = group_members.strip() if (group_members and group_members.strip()) else None
     async with get_connection(db_path) as db:
         cursor = await db.execute(
             """
             UPDATE report_topics
-            SET user_id = ?, assigned_at = CURRENT_TIMESTAMP
+            SET user_id = ?, assigned_at = CURRENT_TIMESTAMP, group_members = ?
             WHERE id = ? AND user_id IS NULL;
             """,
-            (user_telegram_id, topic_id),
+            (user_telegram_id, clean_members, topic_id),
         )
         await db.commit()
         return cursor.rowcount > 0
@@ -649,7 +671,7 @@ async def unclaim_topic(topic_id: int, user_telegram_id: int, db_path: Optional[
         cursor = await db.execute(
             """
             UPDATE report_topics
-            SET user_id = NULL, assigned_at = NULL
+            SET user_id = NULL, assigned_at = NULL, group_members = NULL
             WHERE id = ? AND user_id = ?;
             """,
             (topic_id, user_telegram_id),

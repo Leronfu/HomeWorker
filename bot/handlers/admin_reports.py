@@ -27,6 +27,7 @@ from bot.keyboards import (
     get_admin_confirm_delete_batch_keyboard,
     get_admin_reports_menu_keyboard,
     get_cancel_reports_keyboard,
+    get_report_type_keyboard,
     get_subjects_keyboard,
 )
 from bot.utils import (
@@ -158,15 +159,14 @@ async def process_custom_subject_input_for_reports(message: Message, state: FSMC
         return
 
     subject = await get_or_create_subject(name, config.DB_PATH)
-    await state.set_state(ReportAdminStates.waiting_for_seminar_date)
+    await state.set_state(ReportAdminStates.waiting_for_report_type)
     await state.update_data(subject_id=subject["id"], subject_name=subject["name"])
 
     text = (
         f"🎤 <b>Предмет: {html.escape(subject['name'])}</b> (сохранен в списке дисциплин)\n\n"
-        "Шаг 1 из 3: Отправьте сообщением <b>дату семинара</b>, к которой готовятся доклады.\n"
-        "<i>Например: 15 ноября или 15.11.2026</i>"
+        "Шаг 1 из 4: Выберите <b>формат докладов</b> в этом пуле:"
     )
-    await message.answer(text=text, reply_markup=get_cancel_reports_keyboard("arep_menu_add"))
+    await message.answer(text=text, reply_markup=get_report_type_keyboard())
 
 
 @router.callback_query(F.data == "arep_menu_delete_subject")
@@ -249,12 +249,44 @@ async def start_report_fsm_seminar_date(callback: CallbackQuery, state: FSMConte
         await callback.answer("Предмет не найден.", show_alert=True)
         return
 
-    await state.set_state(ReportAdminStates.waiting_for_seminar_date)
+    await state.set_state(ReportAdminStates.waiting_for_report_type)
     await state.update_data(subject_id=subject_id, subject_name=subject["name"])
 
     text = (
         f"🎤 <b>Предмет: {html.escape(subject['name'])}</b>\n\n"
-        "Шаг 1 из 3: Отправьте сообщением <b>дату семинара</b>, к которой готовятся доклады.\n"
+        "Шаг 1 из 4: Выберите <b>формат докладов</b> в этом пуле:"
+    )
+    if callback.message:
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=get_report_type_keyboard(),
+            )
+        except TelegramBadRequest:
+            pass
+    await callback.answer()
+
+
+@router.callback_query(ReportAdminStates.waiting_for_report_type, F.data.startswith("arep_type:"))
+async def process_report_type_choice(callback: CallbackQuery, state: FSMContext) -> None:
+    """Выбор формата доклада (индивидуальный или групповой)."""
+    if not _is_admin_check(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    _, r_type = callback.data.split(":", 1)
+    report_type = "group" if r_type == "group" else "individual"
+    await state.update_data(report_type=report_type)
+    await state.set_state(ReportAdminStates.waiting_for_seminar_date)
+
+    data = await state.get_data()
+    subj_name = data.get("subject_name", "Предмет")
+    type_str = "👥 Групповой" if report_type == "group" else "👤 Индивидуальный"
+
+    text = (
+        f"🎤 <b>Предмет: {html.escape(subj_name)}</b>\n"
+        f"👥 <b>Формат:</b> {type_str}\n\n"
+        "Шаг 2 из 4: Отправьте сообщением <b>дату семинара</b>, к которой готовятся доклады.\n"
         "<i>Например: 15 ноября или 15.11.2026</i>"
     )
     if callback.message:
@@ -374,6 +406,8 @@ async def process_release_date_input(message: Message, state: FSMContext) -> Non
     seminar_date = data["seminar_date"]
     topics = data["topics"]
 
+    report_type = data.get("report_type", "individual")
+
     try:
         batch_id = await create_report_batch(
             subject_id=subject_id,
@@ -381,6 +415,7 @@ async def process_release_date_input(message: Message, state: FSMContext) -> Non
             release_date=release_date_str,
             release_datetime_random=random_dt_str,
             topics=topics,
+            report_type=report_type,
             db_path=config.DB_PATH,
         )
 
@@ -390,12 +425,14 @@ async def process_release_date_input(message: Message, state: FSMContext) -> Non
 
         await state.clear()
 
+        type_str = "👥 Групповой" if report_type == "group" else "👤 Индивидуальный"
         confirm_text = (
             f"🎉 <b>Дроп докладов #{batch_id} успешно запланирован!</b>\n\n"
             f"📚 <b>Предмет:</b> {html.escape(subject_name)}\n"
+            f"👥 <b>Формат:</b> {type_str}\n"
             f"🗓 <b>Семинар:</b> <code>{html.escape(seminar_date)}</code>\n"
             f"📅 <b>Дата дропа:</b> <code>{release_date_str}</code>\n"
-            f"⏰ <b>Время дропа:</b> <i>Случайное время засекречено даже от старосты (в интервале 10:00–21:00 МСК)</i>\n\n"
+            f"⏰ <b>Время дропа:</b> <i>Случайное время засекречено даже от старосты (в интервале 12:00–20:00 МСК)</i>\n\n"
             f"📝 <b>Всего тем:</b> {len(topics)}"
         )
 

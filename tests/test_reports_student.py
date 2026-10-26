@@ -39,12 +39,14 @@ from bot.database import (
 from bot.handlers.reports import (
     back_to_reports_subjects,
     process_claim_topic,
+    process_group_members_input,
     process_unclaim_topic,
     refresh_report_batch_topics,
     show_reports_subjects_menu,
     show_subject_reports,
     view_report_batch_topics,
 )
+from bot.handlers.states import ReportStudentStates
 from bot.utils import (
     broadcast_report_drop,
     format_report_batch_student,
@@ -93,7 +95,12 @@ class TestReportsStudentModule(unittest.IsolatedAsyncioTestCase):
         cb.message = MagicMock(spec=Message)
         cb.message.message_id = 802
         cb.message.edit_text = AsyncMock()
+        cb.message.answer = AsyncMock()
         return cb
+
+    def _get_fsm_context(self, user_id: int) -> FSMContext:
+        key = StorageKey(bot_id=1, chat_id=user_id, user_id=user_id)
+        return FSMContext(storage=self.storage, key=key)
 
     # -------------------------------------------------------------
     # 1. Форматирование карточки тем для студента
@@ -260,6 +267,47 @@ class TestReportsStudentModule(unittest.IsolatedAsyncioTestCase):
         text_sent = first_call_kwargs.get("text", "")
         self.assertIn("ВЫЛОЖЕНЫ ТЕМЫ ДОКЛАДОВ", text_sent)
         self.assertIn("22.11.2026", text_sent)
+
+    async def test_group_report_claim_flow(self) -> None:
+        """Проверка FSM-сценария записи на групповой доклад с вводом участников."""
+        b_id = await create_report_batch(
+            subject_id=1,
+            seminar_date="25.11.2026",
+            release_date="23.11.2026",
+            release_datetime_random="2026-11-23 14:00:00",
+            topics=["Групповая тема 1"],
+            report_type="group",
+            db_path=TEST_DB_PATH,
+        )
+        await publish_report_batch(b_id, TEST_DB_PATH)
+        topics = await get_batch_topics(b_id, TEST_DB_PATH)
+        topic_id = topics[0]["id"]
+
+        fsm_ctx = self._get_fsm_context(101)
+
+        # 1. Студент кликает по теме группового доклада
+        cb = self._create_mock_callback(101, f"rep_claim:{topic_id}:{b_id}")
+        await process_claim_topic(cb, state=fsm_ctx)
+        self.assertEqual(await fsm_ctx.get_state(), ReportStudentStates.waiting_for_group_members.state)
+        cb.message.answer.assert_called_once()
+        self.assertIn("Вы выбрали групповой доклад", cb.message.answer.call_args[1]["text"])
+
+        # 2. Студент вводит слишком короткий список
+        msg_short = self._create_mock_message(101, "Я")
+        await process_group_members_input(msg_short, fsm_ctx)
+        self.assertIn("корректный список участников", msg_short.answer.call_args[0][0])
+
+        # 3. Студент отправляет список участников
+        members_text = "Анна Смирнова, Петр Сидоров, Иван Иванов"
+        msg_valid = self._create_mock_message(101, members_text)
+        await process_group_members_input(msg_valid, fsm_ctx)
+        self.assertIn("успешно закреплен за вашей группой", msg_valid.answer.call_args[0][0])
+        self.assertIsNone(await fsm_ctx.get_state())
+
+        # Проверяем сохранение в БД
+        updated_topics = await get_batch_topics(b_id, TEST_DB_PATH)
+        self.assertEqual(updated_topics[0]["user_id"], 101)
+        self.assertEqual(updated_topics[0]["group_members"], members_text)
 
 
 if __name__ == "__main__":
