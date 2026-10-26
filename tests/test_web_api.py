@@ -44,11 +44,12 @@ from bot.web.routes import (
     handle_get_subjects,
     handle_health,
     handle_publish_reports_batch,
+    handle_spin_random_topic,
     handle_unclaim_topic,
     handle_update_homework,
     handle_update_schedule_day,
 )
-from bot.web.server import create_web_app
+from bot.web.server import BOT_KEY, create_web_app
 
 TEST_DB_PATH = "test_web_api.db"
 TEST_ADMIN_ID = 999888
@@ -554,6 +555,76 @@ class TestWebApi(unittest.IsolatedAsyncioTestCase):
         cur_batch3 = next((b for b in batches3 if b["id"] == batch_id), None)
         self.assertIsNone(cur_batch3["topics"][0]["group_members"])
         self.assertFalse(cur_batch3["topics"][0]["is_taken"])
+
+    async def test_spin_random_api(self):
+        """Проверка API ручного визуального рандомайзера и отправки уведомления."""
+        # 1. Создаем пул с 2 темами
+        req_create = self._build_request(
+            "POST",
+            "/api/reports/batches",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            json_data={
+                "subject_id": 1,
+                "seminar_date": "12.12.2026",
+                "release_date": "10.12.2026",
+                "topics": ["Тема рандома 1", "Тема рандома 2"],
+            },
+        )
+        resp_create = await handle_create_reports_batch(req_create)
+        self.assertEqual(resp_create.status, 200)
+        batch_id = json.loads(resp_create.text)["batch_id"]
+
+        # Получаем созданные темы
+        req_get = self._build_request(
+            "GET",
+            f"/api/reports/batches?subject_id=1",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+        )
+        resp_get = await handle_get_reports_batches(req_get)
+        batches = json.loads(resp_get.text)["batches"]
+        cur_batch = next((b for b in batches if b["id"] == batch_id), None)
+        topic_1_id = cur_batch["topics"][0]["id"]
+
+        # 2. Не-администратор не имеет права крутить рулетку -> 403
+        req_spin_forbidden = self._build_request(
+            "POST",
+            f"/api/reports/topics/{topic_1_id}/spin-random",
+            headers={"X-Dev-Telegram-Id": str(TEST_STUDENT_ID)},
+            match_info={"id": str(topic_1_id)},
+        )
+        with self.assertRaises(web.HTTPForbidden):
+            await handle_spin_random_topic(req_spin_forbidden)
+
+        # 3. Мокируем бота для проверки отправки уведомления студенту
+        mock_bot = MagicMock()
+        mock_bot.send_message = AsyncMock()
+        self.app[BOT_KEY] = mock_bot
+
+        # 4. Староста запускает рандомайзер
+        req_spin_ok = self._build_request(
+            "POST",
+            f"/api/reports/topics/{topic_1_id}/spin-random",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            match_info={"id": str(topic_1_id)},
+        )
+        resp_spin = await handle_spin_random_topic(req_spin_ok)
+        self.assertEqual(resp_spin.status, 200)
+        spin_result = json.loads(resp_spin.text)
+        self.assertTrue(spin_result["ok"])
+        self.assertIn("winner", spin_result)
+        self.assertIn("candidates", spin_result)
+        self.assertEqual(spin_result["topic"]["id"], topic_1_id)
+
+        # 5. Проверяем, что бот отправил уведомление выпавшему студенту
+        mock_bot.send_message.assert_called_once()
+        sent_call_args = mock_bot.send_message.call_args[1]
+        self.assertEqual(sent_call_args["chat_id"], spin_result["winner"]["telegram_id"])
+        self.assertIn("Вам случайным образом выпал доклад", sent_call_args["text"])
+        self.assertIn("Тема рандома 1", sent_call_args["text"])
+
+        # 6. Повторный запуск для уже занятой темы возвращает 400
+        resp_spin_again = await handle_spin_random_topic(req_spin_ok)
+        self.assertEqual(resp_spin_again.status, 400)
 
 
 if __name__ == "__main__":

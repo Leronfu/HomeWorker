@@ -26,6 +26,7 @@ from bot.web.routes import (
     handle_health,
     handle_publish_reports_batch,
     handle_rollover_schedule,
+    handle_spin_random_topic,
     handle_unclaim_topic,
     handle_update_homework,
     handle_update_schedule_day,
@@ -74,6 +75,7 @@ def create_web_app(bot: Optional[Bot] = None, scheduler: Optional[AsyncIOSchedul
     app.router.add_post("/api/reports/batches/{id}/publish", handle_publish_reports_batch)
     app.router.add_post("/api/reports/topics/{id}/claim", handle_claim_topic)
     app.router.add_post("/api/reports/topics/{id}/unclaim", handle_unclaim_topic)
+    app.router.add_post("/api/reports/topics/{id}/spin-random", handle_spin_random_topic)
 
     # Раздача статических файлов веб-приложения (HTML, CSS, JS)
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

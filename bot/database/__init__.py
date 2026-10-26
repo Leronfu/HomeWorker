@@ -36,6 +36,8 @@ from bot.database.db import (
     delete_report_batch,
     get_pending_auto_assign_batches,
     mark_batch_auto_assigned,
+    get_topic_by_id,
+    spin_random_for_topic,
     auto_assign_remaining_topics,
 )
 
@@ -70,8 +72,10 @@ __all__ = [
     "get_batches_by_subject",
     "get_batch_by_id",
     "get_batch_topics",
+    "get_topic_by_id",
     "claim_topic",
     "unclaim_topic",
+    "spin_random_for_topic",
     "delete_report_batch",
     "get_pending_auto_assign_batches",
     "mark_batch_auto_assigned",

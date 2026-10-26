@@ -133,6 +133,15 @@
     claimGroupTopicId: document.getElementById('claimGroupTopicId'),
     claimGroupTopicTitle: document.getElementById('claimGroupTopicTitle'),
     claimGroupMembersInput: document.getElementById('claimGroupMembersInput'),
+    modalRandomizer: document.getElementById('modalRandomizer'),
+    rouletteTopicTitle: document.getElementById('rouletteTopicTitle'),
+    rouletteTopicMeta: document.getElementById('rouletteTopicMeta'),
+    rouletteWindow: document.getElementById('rouletteWindow'),
+    rouletteTrack: document.getElementById('rouletteTrack'),
+    rouletteResult: document.getElementById('rouletteResult'),
+    rouletteWinnerName: document.getElementById('rouletteWinnerName'),
+    btnStartRoulette: document.getElementById('btnStartRoulette'),
+    btnCancelRoulette: document.getElementById('btnCancelRoulette'),
   };
 
   // Виброотклик Telegram (Haptic Feedback)
@@ -786,9 +795,14 @@
         const publishNowBtn = !isPublished
           ? `<button class="btn btn-success btn-sm btn-publish-batch" data-batch-id="${batch.id}" type="button">🚀 Выложить сейчас</button>`
           : '';
+        const freeCount = (batch.topics || []).filter((t) => !t.is_taken).length;
+        const spinBatchBtn = freeCount > 0
+          ? `<button class="btn btn-warning-outline btn-sm btn-spin-batch" data-batch-id="${batch.id}" type="button">🎲 Крутить рулетку (${freeCount})</button>`
+          : '';
         adminControlsHtml = `
           <div class="batch-admin-controls">
             ${publishNowBtn}
+            ${spinBatchBtn}
             <button class="btn btn-danger-outline btn-sm btn-delete-batch" data-batch-id="${batch.id}" type="button">🗑 Удалить пул</button>
           </div>
         `;
@@ -816,6 +830,9 @@
           statusLabel = `<span class="topic-status-label free">🟢 Свободно</span>`;
           if (isPublished) {
             actionBtn = `<button class="btn btn-primary btn-sm btn-claim-topic" data-batch-id="${batch.id}" data-topic-id="${t.id}" data-report-type="${batch.report_type || 'individual'}" data-topic-title="${escapeHtml(t.topic_text)}" type="button">Занять тему</button>`;
+          }
+          if (state.isAdmin) {
+            actionBtn += ` <button class="btn-spin-topic" data-topic-id="${t.id}" data-topic-number="${t.topic_number}" data-topic-title="${escapeHtml(t.topic_text)}" data-batch-id="${batch.id}" data-subject-name="${escapeHtml(batch.subject_name || '')}" data-seminar-date="${escapeHtml(batch.seminar_date || '')}" type="button">🎲 Рандом</button>`;
           }
         }
 
@@ -945,6 +962,43 @@
           showToast('Пул удалён (демо-режим)', 'info');
         }
         loadReports();
+      });
+
+      // Рандомайзер для конкретной темы
+      card.querySelectorAll('.btn-spin-topic').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const topicId = parseInt(btn.getAttribute('data-topic-id'), 10);
+          const topicNum = btn.getAttribute('data-topic-number');
+          const topicTitle = btn.getAttribute('data-topic-title');
+          const subjectName = btn.getAttribute('data-subject-name');
+          const seminarDate = btn.getAttribute('data-seminar-date');
+          openRouletteModal({
+            id: topicId,
+            topic_number: topicNum,
+            topic_text: topicTitle,
+            subject_name: subjectName,
+            seminar_date: seminarDate,
+            batch_id: batch.id,
+          });
+        });
+      });
+
+      // Рандомайзер из шапки пула для первой свободной темы
+      card.querySelector('.btn-spin-batch')?.addEventListener('click', () => {
+        const freeTopics = (batch.topics || []).filter((t) => !t.is_taken);
+        if (freeTopics.length === 0) {
+          showToast('Все темы в этом пуле уже заняты!', 'info');
+          return;
+        }
+        const targetTopic = freeTopics[0];
+        openRouletteModal({
+          id: targetTopic.id,
+          topic_number: targetTopic.topic_number,
+          topic_text: targetTopic.topic_text,
+          subject_name: batch.subject_name,
+          seminar_date: batch.seminar_date,
+          batch_id: batch.id,
+        });
       });
 
       elements.reportsBatchesList.appendChild(card);
@@ -1106,6 +1160,187 @@
       closeModal(elements.modalClaimGroupTopic);
       loadReports();
     });
+
+    elements.btnStartRoulette?.addEventListener('click', runRouletteAnimation);
+  }
+
+  // ---------------- 6. МОДУЛЬ ВИЗУАЛЬНОГО РАНДОМАЙЗЕРА (РУЛЕТКИ) ---------------- //
+
+  let activeRouletteTopic = null;
+  let isRouletteSpinning = false;
+
+  function renderRouletteCards(candidates, winner = null, winningIndex = -1) {
+    if (!elements.rouletteTrack) return;
+    elements.rouletteTrack.innerHTML = '';
+    candidates.forEach((cand, idx) => {
+      const card = document.createElement('div');
+      card.className = 'roulette-card';
+      if (idx === winningIndex) {
+        card.id = 'rouletteWinnerCard';
+      }
+      const rawName = (cand.full_name || 'Студент').trim();
+      const initials = rawName.slice(0, 2).toUpperCase();
+      card.innerHTML = `
+        <div class="card-avatar">${initials}</div>
+        <div class="card-name" title="${escapeHtml(rawName)}">${escapeHtml(rawName)}</div>
+      `;
+      elements.rouletteTrack.appendChild(card);
+    });
+  }
+
+  function openRouletteModal(topic) {
+    if (isRouletteSpinning) return;
+    activeRouletteTopic = topic;
+
+    if (elements.rouletteTopicTitle) {
+      elements.rouletteTopicTitle.textContent = `Тема #${topic.topic_number || ''}: «${topic.topic_text}»`;
+    }
+    if (elements.rouletteTopicMeta) {
+      elements.rouletteTopicMeta.textContent = `Предмет: ${topic.subject_name || '—'} • Семинар: ${topic.seminar_date || '—'}`;
+    }
+    if (elements.rouletteResult) {
+      elements.rouletteResult.classList.add('hidden');
+    }
+
+    if (elements.btnStartRoulette) {
+      elements.btnStartRoulette.disabled = false;
+      elements.btnStartRoulette.classList.remove('hidden');
+      elements.btnStartRoulette.textContent = '🎰 Запустить рулетку!';
+    }
+    if (elements.btnCancelRoulette) {
+      elements.btnCancelRoulette.disabled = false;
+      elements.btnCancelRoulette.textContent = 'Отмена';
+    }
+
+    const previewCandidates = [
+      { full_name: 'Анна Смирнова' },
+      { full_name: 'Петр Сидоров' },
+      { full_name: 'Екатерина Ковалева' },
+      { full_name: 'Дмитрий Волков' },
+      { full_name: 'Мария Соколова' },
+      { full_name: 'Алексей Морозов' },
+    ];
+    renderRouletteCards(previewCandidates);
+    if (elements.rouletteTrack) {
+      elements.rouletteTrack.style.transition = 'none';
+      elements.rouletteTrack.style.transform = 'translate3d(0, 0, 0)';
+    }
+
+    openModal(elements.modalRandomizer);
+  }
+
+  async function runRouletteAnimation() {
+    if (!activeRouletteTopic || isRouletteSpinning) return;
+    isRouletteSpinning = true;
+
+    const topic = activeRouletteTopic;
+    if (elements.btnStartRoulette) elements.btnStartRoulette.disabled = true;
+    if (elements.btnCancelRoulette) elements.btnCancelRoulette.disabled = true;
+    elements.rouletteResult?.classList.add('hidden');
+
+    triggerHaptic('medium');
+
+    let spinData = null;
+    try {
+      spinData = await apiFetch(`/api/reports/topics/${topic.id}/spin-random`, { method: 'POST' });
+    } catch (err) {
+      // Демо fallback
+      const demoCandidates = [
+        { telegram_id: 101, full_name: 'Анна Смирнова' },
+        { telegram_id: 102, full_name: 'Петр Сидоров' },
+        { telegram_id: 103, full_name: 'Екатерина Ковалева' },
+        { telegram_id: 104, full_name: 'Дмитрий Волков' },
+        { telegram_id: 105, full_name: 'Мария Соколова' },
+        { telegram_id: 106, full_name: 'Алексей Морозов' },
+      ];
+      const demoWinner = demoCandidates[Math.floor(Math.random() * demoCandidates.length)];
+      spinData = {
+        ok: true,
+        winner: demoWinner,
+        candidates: demoCandidates,
+        topic,
+      };
+    }
+
+    if (!spinData || !spinData.winner) {
+      showToast(spinData?.error || 'Не удалось выбрать студента', 'error');
+      isRouletteSpinning = false;
+      if (elements.btnStartRoulette) elements.btnStartRoulette.disabled = false;
+      if (elements.btnCancelRoulette) elements.btnCancelRoulette.disabled = false;
+      return;
+    }
+
+    const winner = spinData.winner;
+    const rawCandidates = (spinData.candidates && spinData.candidates.length > 0)
+      ? spinData.candidates
+      : [winner];
+
+    const TOTAL_CARDS = 45;
+    const WIN_INDEX = 34;
+    const drumCards = [];
+
+    for (let i = 0; i < TOTAL_CARDS; i++) {
+      if (i === WIN_INDEX) {
+        drumCards.push(winner);
+      } else {
+        const pick = rawCandidates[Math.floor(Math.random() * rawCandidates.length)];
+        drumCards.push(pick);
+      }
+    }
+
+    renderRouletteCards(drumCards, winner, WIN_INDEX);
+
+    const cardWidth = 130;
+    const gap = 12;
+    const windowWidth = elements.rouletteWindow ? elements.rouletteWindow.offsetWidth : 360;
+    const centerOffset = (WIN_INDEX * (cardWidth + gap)) + (cardWidth / 2) - (windowWidth / 2);
+    const jitter = (Math.random() * 24) - 12;
+    const finalTranslateX = Math.round(centerOffset + jitter);
+
+    if (elements.rouletteTrack) {
+      elements.rouletteTrack.style.transition = 'none';
+      elements.rouletteTrack.style.transform = 'translate3d(0, 0, 0)';
+      void elements.rouletteTrack.offsetHeight;
+
+      const DURATION_SEC = 4.0;
+      elements.rouletteTrack.style.transition = `transform ${DURATION_SEC}s cubic-bezier(0.12, 0.85, 0.22, 1.0)`;
+      elements.rouletteTrack.style.transform = `translate3d(-${finalTranslateX}px, 0, 0)`;
+
+      const tickInterval = setInterval(() => {
+        triggerHaptic('light');
+      }, 300);
+
+      setTimeout(() => {
+        clearInterval(tickInterval);
+      }, (DURATION_SEC - 1.0) * 1000);
+
+      setTimeout(() => {
+        isRouletteSpinning = false;
+        triggerHaptic('success');
+
+        const winCard = document.getElementById('rouletteWinnerCard');
+        if (winCard) {
+          winCard.classList.add('winner-active');
+        }
+
+        if (elements.rouletteWinnerName) {
+          elements.rouletteWinnerName.textContent = winner.full_name || 'Студент';
+        }
+        if (elements.rouletteResult) {
+          elements.rouletteResult.classList.remove('hidden');
+        }
+
+        if (elements.btnStartRoulette) {
+          elements.btnStartRoulette.classList.add('hidden');
+        }
+        if (elements.btnCancelRoulette) {
+          elements.btnCancelRoulette.textContent = '🎉 Отлично';
+          elements.btnCancelRoulette.disabled = false;
+        }
+
+        loadReports();
+      }, DURATION_SEC * 1000 + 100);
+    }
   }
 
   // ---------------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---------------- //

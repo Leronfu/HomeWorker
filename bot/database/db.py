@@ -621,6 +621,25 @@ async def get_batch_by_id(batch_id: int, db_path: Optional[str] = None) -> Optio
         return dict(row) if row else None
 
 
+async def get_topic_by_id(topic_id: int, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Получить тему доклада по ID с информацией о партии и предмете."""
+    async with get_connection(db_path) as db:
+        cursor = await db.execute(
+            """
+            SELECT t.*, b.subject_id, b.seminar_date, b.report_type, b.is_published, s.name as subject_name,
+                   u.full_name as student_name, u.username as student_username
+            FROM report_topics t
+            JOIN report_batches b ON t.batch_id = b.id
+            JOIN subjects s ON b.subject_id = s.id
+            LEFT JOIN users u ON t.user_id = u.telegram_id
+            WHERE t.id = ?;
+            """,
+            (topic_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
 async def get_batch_topics(batch_id: int, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
     """Получить список всех тем партии с информацией о занявших студентах и участниках группы."""
     async with get_connection(db_path) as db:
@@ -781,3 +800,54 @@ async def auto_assign_remaining_topics(
         "unassigned_count": len(free_topics),
         "remaining_unassigned": remaining_count,
     }
+
+
+async def spin_random_for_topic(
+    topic_id: int,
+    db_path: Optional[str] = None,
+) -> Tuple[bool, Optional[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any], str]:
+    """Случайно выбрать студента из числа свободных в пуле и закрепить тему (ручной рандомайзер).
+    
+    Возвращает кортеж: (success, winner_dict, candidates_list, topic_dict, message).
+    """
+    import random
+    from bot import config
+
+    actual_db = db_path or config.DB_PATH
+    topic = await get_topic_by_id(topic_id, actual_db)
+    if not topic:
+        return False, None, [], {}, "Тема доклада не найдена"
+
+    if topic.get("user_id"):
+        return False, None, [], topic, "Эта тема уже закреплена за студентом"
+
+    batch_id = topic["batch_id"]
+    topics = await get_batch_topics(batch_id, actual_db)
+    already_assigned_user_ids = {t["user_id"] for t in topics if t.get("user_id")}
+
+    all_users = await get_all_users(actual_db)
+    if not all_users:
+        return False, None, [], topic, "В базе данных нет зарегистрированных студентов"
+
+    # Студенты, которые еще не взяли доклад в этой партии
+    eligible = [u for u in all_users if u["telegram_id"] not in already_assigned_user_ids]
+    if not eligible:
+        eligible = list(all_users)
+
+    winner = random.choice(eligible)
+    group_text = winner["full_name"] if topic.get("report_type") == "group" else None
+
+    async with get_connection(actual_db) as db:
+        cursor = await db.execute(
+            """
+            UPDATE report_topics
+            SET user_id = ?, assigned_at = CURRENT_TIMESTAMP, group_members = ?
+            WHERE id = ? AND user_id IS NULL;
+            """,
+            (winner["telegram_id"], group_text, topic_id),
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            return False, None, eligible, topic, "Тема была занята другим студентом"
+
+    return True, winner, eligible, topic, "Студент успешно выбран"

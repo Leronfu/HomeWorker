@@ -42,6 +42,8 @@ from bot.database import (
     publish_report_batch,
     get_batches_by_subject,
     get_batch_topics,
+    get_topic_by_id,
+    spin_random_for_topic,
     claim_topic,
     unclaim_topic,
 )
@@ -281,6 +283,45 @@ class TestDatabase(unittest.IsolatedAsyncioTestCase):
         topics_after = await get_batch_topics(batch_id, TEST_DB_PATH)
         self.assertIsNone(topics_after[0]["user_id"])
         self.assertIsNone(topics_after[0]["group_members"])
+
+    async def test_spin_random_for_topic(self) -> None:
+        """Проверка работы функции случайного закрепления темы за студентом."""
+        # Создаем студентов
+        await add_or_update_user(101, "stud1", "Студент Один", db_path=TEST_DB_PATH)
+        await add_or_update_user(102, "stud2", "Студент Два", db_path=TEST_DB_PATH)
+
+        batch_id = await create_report_batch(
+            subject_id=1,
+            seminar_date="10.12.2026",
+            release_date="08.12.2026",
+            release_datetime_random="2026-12-08 14:00:00",
+            topics=["Тема А", "Тема Б"],
+            db_path=TEST_DB_PATH,
+        )
+        topics = await get_batch_topics(batch_id, TEST_DB_PATH)
+        topic_a = topics[0]
+
+        # 1. Проверяем get_topic_by_id
+        t_data = await get_topic_by_id(topic_a["id"], TEST_DB_PATH)
+        self.assertIsNotNone(t_data)
+        self.assertEqual(t_data["topic_text"], "Тема А")
+        self.assertEqual(t_data["subject_name"], DEFAULT_SUBJECTS[0])
+
+        # 2. Крутим рандом для темы А
+        ok, winner, eligible, topic_res, msg = await spin_random_for_topic(topic_a["id"], TEST_DB_PATH)
+        self.assertTrue(ok)
+        self.assertIsNotNone(winner)
+        self.assertIn(winner["telegram_id"], [101, 102])
+        self.assertEqual(len(eligible), 2)
+
+        # Проверяем, что в БД тема закреплена
+        t_after = await get_topic_by_id(topic_a["id"], TEST_DB_PATH)
+        self.assertEqual(t_after["user_id"], winner["telegram_id"])
+
+        # 3. Повторная попытка для уже занятой темы возвращает False
+        ok_again, _, _, _, msg_again = await spin_random_for_topic(topic_a["id"], TEST_DB_PATH)
+        self.assertFalse(ok_again)
+        self.assertIn("уже закреплена", msg_again)
 
 
 if __name__ == "__main__":

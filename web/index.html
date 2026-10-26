@@ -333,6 +333,45 @@
     </div>
   </div>
 
+  <!-- Модальное окно 5: Визуальный рандомайзер с рулеткой -->
+  <div id="modalRandomizer" class="modal-backdrop hidden">
+    <div class="modal-box modal-box-roulette">
+      <div class="modal-header">
+        <h3 class="modal-title">🎲 Честный рандомайзер докладов</h3>
+        <button class="modal-close-btn" data-close-modal="modalRandomizer" type="button">&times;</button>
+      </div>
+      <div class="roulette-body">
+        <div class="roulette-topic-card">
+          <span class="roulette-badge">Тема для розыгрыша</span>
+          <p id="rouletteTopicTitle" class="roulette-topic-title"></p>
+          <p id="rouletteTopicMeta" class="roulette-topic-meta"></p>
+        </div>
+
+        <!-- Барабан рулетки -->
+        <div class="roulette-drum-wrapper">
+          <div class="roulette-pointer">▼</div>
+          <div class="roulette-center-line"></div>
+          <div class="roulette-window" id="rouletteWindow">
+            <div id="rouletteTrack" class="roulette-track"></div>
+          </div>
+          <div class="roulette-shadow-left"></div>
+          <div class="roulette-shadow-right"></div>
+        </div>
+
+        <div id="rouletteResult" class="roulette-result hidden">
+          <div class="roulette-winner-badge">🏆 ВЫПАВШИЙ СТУДЕНТ</div>
+          <h3 id="rouletteWinnerName" class="roulette-winner-name"></h3>
+          <p class="roulette-winner-status">✅ Тема закреплена в базе данных<br>📩 Студенту отправлено личное уведомление в Telegram</p>
+        </div>
+
+        <div class="modal-actions" id="rouletteActions">
+          <button id="btnCancelRoulette" class="btn btn-secondary" data-close-modal="modalRandomizer" type="button">Отмена</button>
+          <button id="btnStartRoulette" class="btn btn-primary" type="button">🎰 Крутить рулетку!</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

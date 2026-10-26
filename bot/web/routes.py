@@ -1,5 +1,4 @@
-"""Обработчики REST API для Telegram Mini App (Web App)."""
-
+import html
 import json
 import logging
 from datetime import datetime
@@ -7,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from aiohttp import web
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from bot import config
 from bot.database import (
@@ -31,6 +31,7 @@ from bot.database import (
     get_schedule,
     get_user,
     publish_report_batch,
+    spin_random_for_topic,
     unclaim_topic,
     update_homework,
     update_schedule_day,
@@ -557,3 +558,62 @@ async def handle_unclaim_topic(request: web.Request) -> web.Response:
         return json_response({"ok": False, "error": "Не удалось отказаться от темы"}, 400)
 
     return json_response({"ok": True, "message": "Вы успешно отказались от темы"})
+
+
+async def handle_spin_random_topic(request: web.Request) -> web.Response:
+    """Случайное назначение студента на тему доклада старостой через визуальный рандомайзер."""
+    await require_admin(request)
+    topic_id = int(request.match_info["id"])
+
+    success, winner, eligible, topic, message = await spin_random_for_topic(topic_id)
+    if not success or not winner:
+        return json_response({"ok": False, "error": message}, 400)
+
+    # Отправляем мгновенное личное уведомление студенту в Telegram
+    bot = _get_bot(request.app)
+    if bot:
+        subj_name = topic.get("subject_name", "Предмет")
+        seminar_date = topic.get("seminar_date", "—")
+        topic_num = topic.get("topic_number", "")
+        topic_text = topic.get("topic_text", "")
+        student_notify_text = (
+            "🎲 <b>Вам случайным образом выпал доклад!</b> 📚\n\n"
+            f"📚 <b>Предмет:</b> «<b>{html.escape(subj_name)}</b>»\n"
+            f"🗓 <b>Дата семинара:</b> <code>{html.escape(seminar_date)}</code>\n"
+            f"🎯 <b>Тема (#{topic_num}):</b>\n"
+            f"<blockquote>{html.escape(topic_text)}</blockquote>\n\n"
+            "<i>Тема закреплена за вами. Пожалуйста, подготовьте доклад к семинару!</i>"
+        )
+        url = config.WEB_APP_URL or "http://localhost:8080"
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🎤 Открыть темы в Mini App", web_app=WebAppInfo(url=url))]]
+        )
+        try:
+            await bot.send_message(chat_id=winner["telegram_id"], text=student_notify_text, reply_markup=markup)
+        except Exception as e:
+            logger.warning("Не удалось отправить уведомление о рандоме студенту %s: %s", winner["telegram_id"], e)
+
+    return json_response({
+        "ok": True,
+        "message": message,
+        "winner": {
+            "telegram_id": winner["telegram_id"],
+            "full_name": winner["full_name"],
+            "username": winner.get("username"),
+        },
+        "candidates": [
+            {
+                "telegram_id": u["telegram_id"],
+                "full_name": u["full_name"],
+                "username": u.get("username"),
+            }
+            for u in eligible
+        ],
+        "topic": {
+            "id": topic["id"],
+            "topic_number": topic["topic_number"],
+            "topic_text": topic["topic_text"],
+            "subject_name": topic.get("subject_name"),
+            "seminar_date": topic.get("seminar_date"),
+        },
+    })
