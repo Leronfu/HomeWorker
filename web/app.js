@@ -247,6 +247,11 @@
     navItems.forEach((btn) => {
       btn.addEventListener('click', () => {
         const targetTabId = btn.getAttribute('data-tab');
+        if (!targetTabId) return;
+
+        // Если вкладка уже открыта — не перезагружаем и не дергаем DOM
+        if (btn.classList.contains('active')) return;
+
         triggerHaptic('light');
 
         navItems.forEach((b) => b.classList.remove('active'));
@@ -254,7 +259,12 @@
 
         btn.classList.add('active');
         const activeTab = document.getElementById(targetTabId);
-        if (activeTab) activeTab.classList.add('active');
+        if (activeTab) {
+          activeTab.classList.add('active');
+        }
+
+        // Мгновенный сброс скролла наверх без рывков
+        window.scrollTo({ top: 0, behavior: 'instant' });
       });
     });
 
