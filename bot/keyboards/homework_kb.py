@@ -44,22 +44,36 @@ def get_subjects_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def get_student_homework_keyboard(subject_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура под списком ДЗ для студента (обновить или вернуться к предметам)."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔄 Обновить",
-                    callback_data=f"hw_refresh:{subject_id}",
-                ),
-                InlineKeyboardButton(
-                    text="« К предметам",
-                    callback_data="hw_list_subjects",
-                ),
-            ]
-        ]
-    )
+def get_student_homework_keyboard(
+    subject_id: int,
+    homework_list: Optional[List[Dict[str, Any]]] = None,
+) -> InlineKeyboardMarkup:
+    """Клавиатура под списком ДЗ для студента (обновить, скачать файлы, вернуться к предметам)."""
+    rows: List[List[InlineKeyboardButton]] = []
+
+    if homework_list:
+        for idx, hw in enumerate(homework_list, start=1):
+            f_name = hw.get("file_name")
+            if f_name and f_name != "[Срок хранения файла истек]":
+                disp_name = f_name if len(f_name) <= 18 else f_name[:15] + "..."
+                rows.append([
+                    InlineKeyboardButton(
+                        text=f"📥 Скачать файл #{idx} ({disp_name})",
+                        callback_data=f"hw_dl:{hw['id']}",
+                    )
+                ])
+
+    rows.append([
+        InlineKeyboardButton(
+            text="🔄 Обновить",
+            callback_data=f"hw_refresh:{subject_id}",
+        ),
+        InlineKeyboardButton(
+            text="« К предметам",
+            callback_data="hw_list_subjects",
+        ),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_admin_homework_menu_keyboard() -> InlineKeyboardMarkup:
@@ -121,35 +135,40 @@ def get_admin_homework_list_keyboard(
 
 
 def get_admin_homework_detail_keyboard(
-    homework_id: int, subject_id: int
+    homework_id: int, subject_id: int, has_file: bool = False
 ) -> InlineKeyboardMarkup:
-    """Клавиатура управления конкретным домашним заданием (редактирование, удаление)."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✏️ Изменить текст",
-                    callback_data=f"ahw_edit_text:{homework_id}",
-                ),
-                InlineKeyboardButton(
-                    text="📅 Изменить дедлайн",
-                    callback_data=f"ahw_edit_date:{homework_id}",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🗑 Удалить задание",
-                    callback_data=f"ahw_del_confirm:{homework_id}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="« К списку заданий предмета",
-                    callback_data=f"ahw_list_subj:{subject_id}",
-                )
-            ],
-        ]
-    )
+    """Клавиатура управления конкретным домашним заданием (редактирование, удаление, скачивание файла)."""
+    rows: List[List[InlineKeyboardButton]] = []
+    if has_file:
+        rows.append([
+            InlineKeyboardButton(
+                text="📥 Скачать прикрепленный файл",
+                callback_data=f"hw_dl:{homework_id}",
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton(
+            text="✏️ Изменить текст",
+            callback_data=f"ahw_edit_text:{homework_id}",
+        ),
+        InlineKeyboardButton(
+            text="📅 Изменить дедлайн",
+            callback_data=f"ahw_edit_date:{homework_id}",
+        ),
+    ])
+    rows.append([
+        InlineKeyboardButton(
+            text="🗑 Удалить задание",
+            callback_data=f"ahw_del_confirm:{homework_id}",
+        )
+    ])
+    rows.append([
+        InlineKeyboardButton(
+            text="« К списку заданий предмета",
+            callback_data=f"ahw_list_subj:{subject_id}",
+        )
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_admin_confirm_delete_hw_keyboard(

@@ -1,8 +1,12 @@
 import html
 import json
 import logging
+import os
+import time
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from aiohttp import web
@@ -286,23 +290,70 @@ async def handle_get_homework(request: web.Request) -> web.Response:
         items = await get_homework_by_subject(int(subject_id_raw))
     else:
         items = await get_all_homework()
-    return json_response({"ok": True, "homework": items})
+
+    sanitized_items = []
+    for hw in items:
+        item = dict(hw)
+        is_expired = (item.get("file_name") == "[Срок хранения файла истек]")
+        has_file = bool(item.get("file_name") and not is_expired and item.get("file_path"))
+        item["is_file_expired"] = is_expired
+        item["has_file"] = has_file
+        item["download_url"] = f"/api/homework/{item['id']}/download" if (has_file or is_expired) else None
+        item.pop("file_path", None)
+        sanitized_items.append(item)
+
+    return json_response({"ok": True, "homework": sanitized_items})
 
 
 async def handle_create_homework(request: web.Request) -> web.Response:
-    """Добавление домашнего задания (только староста)."""
+    """Добавление домашнего задания (только староста, поддержка прикрепления файла)."""
     await require_admin(request)
-    try:
-        data = await request.json()
-    except Exception:
-        return json_response({"ok": False, "error": "Неверный формат JSON"}, 400)
 
-    subject_id = data.get("subject_id")
-    subject_name = str(data.get("subject_name", "")).strip()
-    due_date = str(data.get("due_date", "")).strip()
-    task_text = str(data.get("task_text", "")).strip()
+    file_path = None
+    file_name = None
+    file_size = None
+    content_type = request.content_type.lower() if request.content_type else ""
+
+    if "multipart" in content_type:
+        try:
+            data = await request.post()
+        except Exception:
+            return json_response({"ok": False, "error": "Неверный формат multipart данных"}, 400)
+
+        subject_id = data.get("subject_id")
+        subject_name = str(data.get("subject_name", "")).strip()
+        due_date = str(data.get("due_date", "")).strip()
+        task_text = str(data.get("task_text", "")).strip()
+
+        file_field = data.get("file")
+        if isinstance(file_field, web.FileField) and file_field.filename:
+            os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+            orig_filename = os.path.basename(file_field.filename)
+            file_bytes = file_field.file.read()
+            file_size = len(file_bytes)
+            file_name = orig_filename
+            unique_token = f"{int(time.time())}_{uuid.uuid4().hex[:8]}"
+            disk_filename = f"{unique_token}_{orig_filename}"
+            file_path = os.path.join(config.UPLOAD_DIR, disk_filename)
+            with open(file_path, "wb") as f:
+                f.write(file_bytes)
+    else:
+        try:
+            data = await request.json()
+        except Exception:
+            return json_response({"ok": False, "error": "Неверный формат JSON"}, 400)
+
+        subject_id = data.get("subject_id")
+        subject_name = str(data.get("subject_name", "")).strip()
+        due_date = str(data.get("due_date", "")).strip()
+        task_text = str(data.get("task_text", "")).strip()
 
     if not due_date or not task_text:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
         return json_response({"ok": False, "error": "Необходимо указать due_date и task_text"}, 400)
 
     # Если передано текстовое название предмета вручную
@@ -312,33 +363,142 @@ async def handle_create_homework(request: web.Request) -> web.Response:
     elif subject_id and str(subject_id).isdigit() and int(subject_id) > 0:
         final_subject_id = int(subject_id)
     else:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
         return json_response({"ok": False, "error": "Необходимо выбрать предмет или ввести его название вручную"}, 400)
 
-    hw_id = await add_homework(final_subject_id, due_date, task_text)
+    hw_id = await add_homework(
+        final_subject_id,
+        due_date,
+        task_text,
+        file_path=file_path,
+        file_name=file_name,
+        file_size=file_size,
+    )
     return json_response({
         "ok": True,
         "id": hw_id,
         "subject_id": final_subject_id,
-        "message": "Домашнее задание добавлено"
+        "file_name": file_name,
+        "file_size": file_size,
+        "message": "Домашнее задание добавлено",
     })
 
 
 async def handle_update_homework(request: web.Request) -> web.Response:
-    """Редактирование домашнего задания (только староста)."""
+    """Редактирование домашнего задания (только староста, поддержка файлов)."""
     await require_admin(request)
-    hw_id = int(request.match_info["id"])
     try:
-        data = await request.json()
-    except Exception:
-        return json_response({"ok": False, "error": "Неверный формат JSON"}, 400)
+        hw_id = int(request.match_info["id"])
+    except (KeyError, ValueError):
+        return json_response({"ok": False, "error": "Некорректный ID задания"}, 400)
 
-    due_date = data.get("due_date")
-    task_text = data.get("task_text")
+    existing_hw = await get_homework_by_id(hw_id)
+    if not existing_hw:
+        return json_response({"ok": False, "error": "Задание не найдено"}, 404)
 
-    updated = await update_homework(hw_id, due_date=due_date, task_text=task_text)
+    file_path = None
+    file_name = None
+    file_size = None
+    clear_file = False
+    content_type = request.content_type.lower() if request.content_type else ""
+
+    if "multipart" in content_type:
+        try:
+            data = await request.post()
+        except Exception:
+            return json_response({"ok": False, "error": "Неверный формат multipart данных"}, 400)
+
+        due_date = data.get("due_date")
+        task_text = data.get("task_text")
+        clear_file = str(data.get("clear_file", "")).lower() in ("1", "true", "yes")
+
+        file_field = data.get("file")
+        if isinstance(file_field, web.FileField) and file_field.filename:
+            os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+            orig_filename = os.path.basename(file_field.filename)
+            file_bytes = file_field.file.read()
+            file_size = len(file_bytes)
+            file_name = orig_filename
+            unique_token = f"{int(time.time())}_{uuid.uuid4().hex[:8]}"
+            disk_filename = f"{unique_token}_{orig_filename}"
+            file_path = os.path.join(config.UPLOAD_DIR, disk_filename)
+            with open(file_path, "wb") as f:
+                f.write(file_bytes)
+            # Удаляем старый файл с диска
+            old_f_path = existing_hw.get("file_path")
+            if old_f_path and os.path.exists(old_f_path):
+                try:
+                    os.remove(old_f_path)
+                except OSError:
+                    pass
+    else:
+        try:
+            data = await request.json()
+        except Exception:
+            return json_response({"ok": False, "error": "Неверный формат JSON"}, 400)
+
+        due_date = data.get("due_date")
+        task_text = data.get("task_text")
+        clear_file = bool(data.get("clear_file", False))
+
+    if clear_file:
+        old_f_path = existing_hw.get("file_path")
+        if old_f_path and os.path.exists(old_f_path):
+            try:
+                os.remove(old_f_path)
+            except OSError:
+                pass
+
+    updated = await update_homework(
+        hw_id,
+        due_date=due_date,
+        task_text=task_text,
+        file_path=file_path,
+        file_name=file_name,
+        file_size=file_size,
+        clear_file=clear_file,
+    )
     if not updated:
         return json_response({"ok": False, "error": "Задание не найдено или не изменено"}, 404)
     return json_response({"ok": True, "message": "Задание обновлено"})
+
+
+async def handle_download_homework_file(request: web.Request) -> web.Response:
+    """Скачивание прикрепленного файла к домашнему заданию."""
+    try:
+        hw_id = int(request.match_info["id"])
+    except (KeyError, ValueError):
+        return json_response({"ok": False, "error": "Некорректный ID задания"}, 400)
+
+    hw = await get_homework_by_id(hw_id)
+    if not hw:
+        return json_response({"ok": False, "error": "Домашнее задание не найдено"}, 404)
+
+    if hw.get("file_name") == "[Срок хранения файла истек]" or not hw.get("file_path"):
+        return json_response(
+            {"ok": False, "error": "Срок хранения файла истек (файлы хранятся не более 7 дней)"},
+            410,
+        )
+
+    file_path = hw.get("file_path")
+    if not file_path or not os.path.exists(file_path):
+        return json_response(
+            {"ok": False, "error": "Файл не найден на сервере (возможно, удален или истек срок хранения)"},
+            410,
+        )
+
+    file_name = hw.get("file_name") or os.path.basename(file_path)
+    encoded_filename = quote(file_name)
+    return web.FileResponse(
+        path=file_path,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+        },
+    )
 
 
 async def handle_delete_homework(request: web.Request) -> web.Response:

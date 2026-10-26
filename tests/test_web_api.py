@@ -38,6 +38,7 @@ from bot.web.routes import (
     handle_delete_homework,
     handle_delete_reports_batch,
     handle_delete_subject,
+    handle_download_homework_file,
     handle_get_homework,
     handle_get_reports_batches,
     handle_get_schedule,
@@ -625,6 +626,63 @@ class TestWebApi(unittest.IsolatedAsyncioTestCase):
         # 6. Повторный запуск для уже занятой темы возвращает 400
         resp_spin_again = await handle_spin_random_topic(req_spin_ok)
         self.assertEqual(resp_spin_again.status, 400)
+
+    async def test_homework_file_attachment_and_download_api(self):
+        """Проверка отдачи метаданных файла в /api/homework и скачивания через /api/homework/{id}/download."""
+        import tempfile
+        from bot.database import add_homework, update_homework
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = os.path.join(tmp_dir, "psychology_guide.pdf")
+            with open(file_path, "wb") as f:
+                f.write(b"%PDF-1.4 test guide content")
+
+            # Создаем ДЗ с прикрепленным файлом
+            hw_id = await add_homework(
+                subject_id=1,
+                due_date="12.12.2026",
+                task_text="Прочитать главу 3",
+                db_path=TEST_DB_PATH,
+                file_path=file_path,
+                file_name="psychology_guide.pdf",
+                file_size=len(b"%PDF-1.4 test guide content"),
+            )
+
+            # 1. Запрос списка ДЗ
+            req_list = self._build_request("GET", "/api/homework")
+            resp_list = await handle_get_homework(req_list)
+            self.assertEqual(resp_list.status, 200)
+            data_list = json.loads(resp_list.text)
+            self.assertTrue(data_list["ok"])
+            hw_item = next(h for h in data_list["homework"] if h["id"] == hw_id)
+            self.assertEqual(hw_item["file_name"], "psychology_guide.pdf")
+            self.assertTrue(hw_item["has_file"])
+            self.assertFalse(hw_item["is_file_expired"])
+            self.assertEqual(hw_item["download_url"], f"/api/homework/{hw_id}/download")
+            self.assertNotIn("file_path", hw_item)
+
+            # 2. Скачивание активного файла
+            req_dl = self._build_request(
+                "GET",
+                f"/api/homework/{hw_id}/download",
+                match_info={"id": str(hw_id)},
+            )
+            resp_dl = await handle_download_homework_file(req_dl)
+            self.assertEqual(resp_dl.status, 200)
+            self.assertIn("attachment", resp_dl.headers.get("Content-Disposition", ""))
+
+            # 3. Обновляем статус на просроченный файл
+            await update_homework(
+                hw_id,
+                file_path=None,
+                file_name="[Срок хранения файла истек]",
+                db_path=TEST_DB_PATH,
+            )
+            resp_expired_dl = await handle_download_homework_file(req_dl)
+            self.assertEqual(resp_expired_dl.status, 410)
+            data_exp = json.loads(resp_expired_dl.text)
+            self.assertFalse(data_exp["ok"])
+            self.assertIn("истек", data_exp["error"])
 
 
 if __name__ == "__main__":

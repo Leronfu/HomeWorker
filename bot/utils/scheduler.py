@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import zoneinfo
 from bot.database import (
     auto_assign_remaining_topics,
+    cleanup_expired_homework_files,
     copy_next_to_current_week,
     get_all_admin_ids,
     get_all_users,
@@ -406,7 +407,28 @@ async def restore_pending_report_jobs(bot: Bot) -> int:
                 restored_count += 1
 
     logger.info("Восстановлено запланированных задач докладов: %d", restored_count)
+    # Очищаем файлы домашних заданий старше 7 дней при старте
+    try:
+        cleaned_files = await cleanup_expired_homework_files(days=7, db_path=config.DB_PATH)
+        if cleaned_files:
+            logger.info("При запуске очищено просроченных файлов ДЗ: %d", len(cleaned_files))
+    except Exception as e:
+        logger.warning("Ошибка при стартовой очистке просроченных файлов ДЗ: %s", e)
+
     return restored_count
+
+
+async def cleanup_expired_homework_files_job(db_path: Optional[str] = None) -> int:
+    """Периодическая задача: очистка файлов домашних заданий старше 7 дней."""
+    target_db = db_path or config.DB_PATH
+    try:
+        cleaned = await cleanup_expired_homework_files(days=7, db_path=target_db)
+        if cleaned:
+            logger.info("Фоновая очистка: удалено %d файлов ДЗ с истекшим сроком (7 дней)", len(cleaned))
+        return len(cleaned)
+    except Exception as e:
+        logger.error("Ошибка при фоновой очистке файлов ДЗ: %s", e, exc_info=True)
+        return 0
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
@@ -423,4 +445,15 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         replace_existing=True,
     )
     logger.info("Задача еженедельного обновления расписания (сб 15:00 МСК) успешно зарегистрирована в планировщике.")
+
+    # Задача: каждый час проверять файлы ДЗ старше 7 дней и удалять их с диска
+    scheduler.add_job(
+        cleanup_expired_homework_files_job,
+        trigger="interval",
+        hours=1,
+        args=[config.DB_PATH],
+        id="homework_files_cleanup_7d",
+        replace_existing=True,
+    )
+    logger.info("Фоновая задача автоочистки файлов ДЗ (TTL 7 дней, каждый час) зарегистрирована.")
     return scheduler

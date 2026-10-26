@@ -1,12 +1,13 @@
 """Обработчики раздела «Домашнее задание» для студентов."""
 
 import logging
+import os
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from bot import config
-from bot.database import get_all_subjects, get_homework_by_subject, get_subject_by_id
+from bot.database import get_all_subjects, get_homework_by_id, get_homework_by_subject, get_subject_by_id
 from bot.keyboards import get_student_homework_keyboard, get_subjects_keyboard
 from bot.utils import format_homework_list_student
 
@@ -66,7 +67,7 @@ async def show_subject_homework(callback: CallbackQuery) -> None:
         if callback.message:
             await callback.message.edit_text(
                 text=text,
-                reply_markup=get_student_homework_keyboard(subject_id),
+                reply_markup=get_student_homework_keyboard(subject_id, homework_list),
             )
         await callback.answer()
     except TelegramBadRequest:
@@ -94,7 +95,7 @@ async def refresh_subject_homework(callback: CallbackQuery) -> None:
         if callback.message:
             await callback.message.edit_text(
                 text=text,
-                reply_markup=get_student_homework_keyboard(subject_id),
+                reply_markup=get_student_homework_keyboard(subject_id, homework_list),
             )
         await callback.answer("🔄 Список заданий обновлен!")
     except TelegramBadRequest:
@@ -102,3 +103,37 @@ async def refresh_subject_homework(callback: CallbackQuery) -> None:
     except Exception as e:
         logger.error("Ошибка при обновлении ДЗ: %s", e, exc_info=True)
         await callback.answer("⚠️ Не удалось обновить задания.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("hw_dl:"))
+async def download_homework_file_handler(callback: CallbackQuery) -> None:
+    """Отправка прикрепленного файла к заданию по нажатию кнопки в Telegram."""
+    try:
+        _, hw_id_raw = callback.data.split(":", 1)
+        hw_id = int(hw_id_raw)
+
+        hw = await get_homework_by_id(hw_id, config.DB_PATH)
+        if not hw:
+            await callback.answer("Задание не найдено.", show_alert=True)
+            return
+
+        if hw.get("file_name") == "[Срок хранения файла истек]" or not hw.get("file_path"):
+            await callback.answer("⚠️ Срок хранения этого файла истек (файлы хранятся 7 дней).", show_alert=True)
+            return
+
+        file_path = hw.get("file_path")
+        if not file_path or not os.path.exists(file_path):
+            await callback.answer("⚠️ Файл не найден на сервере (срок хранения истек).", show_alert=True)
+            return
+
+        file_name = hw.get("file_name") or os.path.basename(file_path)
+        await callback.answer("⏳ Отправляем файл...")
+        if callback.message:
+            input_file = FSInputFile(path=file_path, filename=file_name)
+            await callback.message.answer_document(
+                document=input_file,
+                caption=f"📎 <b>Файл к заданию #{hw_id}</b> ({hw.get('subject_name', 'ДЗ')})",
+            )
+    except Exception as e:
+        logger.error("Ошибка при отправке файла студенту: %s", e, exc_info=True)
+        await callback.answer("⚠️ Не удалось отправить файл.", show_alert=True)

@@ -23,6 +23,7 @@ from bot.web.routes import (
     handle_get_subjects,
     handle_create_subject,
     handle_delete_subject,
+    handle_download_homework_file,
     handle_health,
     handle_publish_reports_batch,
     handle_rollover_schedule,
@@ -65,6 +66,7 @@ def create_web_app(bot: Optional[Bot] = None, scheduler: Optional[AsyncIOSchedul
     # Домашнее задание
     app.router.add_get("/api/homework", handle_get_homework)
     app.router.add_post("/api/homework", handle_create_homework)
+    app.router.add_get("/api/homework/{id}/download", handle_download_homework_file)
     app.router.add_put("/api/homework/{id}", handle_update_homework)
     app.router.add_delete("/api/homework/{id}", handle_delete_homework)
 

@@ -91,6 +91,10 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
                 due_date TEXT NOT NULL,
                 task_text TEXT NOT NULL,
+                file_path TEXT,
+                file_name TEXT,
+                file_size INTEGER,
+                file_created_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """
@@ -141,6 +145,26 @@ async def init_db(db_path: Optional[str] = None) -> None:
 
         try:
             await db.execute("ALTER TABLE report_topics ADD COLUMN group_members TEXT;")
+        except Exception:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE homework ADD COLUMN file_path TEXT;")
+        except Exception:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE homework ADD COLUMN file_name TEXT;")
+        except Exception:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE homework ADD COLUMN file_size INTEGER;")
+        except Exception:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE homework ADD COLUMN file_created_at TIMESTAMP;")
         except Exception:
             pass
 
@@ -397,13 +421,25 @@ async def clear_week_schedule(week_type: str, db_path: Optional[str] = None) -> 
 # =====================================================================
 
 async def add_homework(
-    subject_id: int, due_date: str, task_text: str, db_path: Optional[str] = None
+    subject_id: int,
+    due_date: str,
+    task_text: str,
+    db_path: Optional[str] = None,
+    file_path: Optional[str] = None,
+    file_name: Optional[str] = None,
+    file_size: Optional[int] = None,
+    file_created_at: Optional[str] = None,
 ) -> int:
-    """Добавить новое домашнее задание."""
+    """Добавить новое домашнее задание (с поддержкой прикрепления файла)."""
     async with get_connection(db_path) as db:
         cursor = await db.execute(
-            "INSERT INTO homework (subject_id, due_date, task_text) VALUES (?, ?, ?);",
-            (subject_id, due_date, task_text),
+            """
+            INSERT INTO homework (
+                subject_id, due_date, task_text,
+                file_path, file_name, file_size, file_created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP));
+            """,
+            (subject_id, due_date, task_text, file_path, file_name, file_size, file_created_at),
         )
         await db.commit()
         return cursor.lastrowid or 0
@@ -462,7 +498,15 @@ async def get_homework_by_id(
 
 
 async def delete_homework(homework_id: int, db_path: Optional[str] = None) -> bool:
-    """Удалить домашнее задание."""
+    """Удалить домашнее задание (включая удаление файла с диска при наличии)."""
+    import os
+    hw = await get_homework_by_id(homework_id, db_path)
+    if hw and hw.get("file_path") and os.path.exists(hw["file_path"]):
+        try:
+            os.remove(hw["file_path"])
+        except OSError:
+            pass
+
     async with get_connection(db_path) as db:
         cursor = await db.execute("DELETE FROM homework WHERE id = ?;", (homework_id,))
         await db.commit()
@@ -474,11 +518,13 @@ async def update_homework(
     due_date: Optional[str] = None,
     task_text: Optional[str] = None,
     db_path: Optional[str] = None,
+    file_path: Optional[str] = None,
+    file_name: Optional[str] = None,
+    file_size: Optional[int] = None,
+    file_created_at: Optional[str] = None,
+    clear_file: bool = False,
 ) -> bool:
-    """Обновить дедлайн и/или текст домашнего задания."""
-    if due_date is None and task_text is None:
-        return False
-
+    """Обновить дедлайн, текст и/или прикрепленный файл домашнего задания."""
     fields = []
     values: List[Any] = []
     if due_date is not None:
@@ -487,6 +533,27 @@ async def update_homework(
     if task_text is not None:
         fields.append("task_text = ?")
         values.append(task_text)
+    if clear_file:
+        fields.append("file_path = NULL")
+        fields.append("file_name = NULL")
+        fields.append("file_size = NULL")
+        fields.append("file_created_at = NULL")
+    else:
+        if file_path is not None:
+            fields.append("file_path = ?")
+            values.append(file_path)
+        if file_name is not None:
+            fields.append("file_name = ?")
+            values.append(file_name)
+        if file_size is not None:
+            fields.append("file_size = ?")
+            values.append(file_size)
+        if file_created_at is not None:
+            fields.append("file_created_at = ?")
+            values.append(file_created_at)
+
+    if not fields:
+        return False
 
     values.append(homework_id)
     set_clause = ", ".join(fields)
@@ -496,6 +563,69 @@ async def update_homework(
         cursor = await db.execute(query, tuple(values))
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def cleanup_expired_homework_files(
+    days: int = 7,
+    db_path: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Автоматически удалить файлы ДЗ старше 7 дней с диска и обновить статус в БД.
+    
+    В БД статус файла заменяется на '[Срок хранения файла истек]', а file_path обнуляется.
+    Возвращает список очищенных записей.
+    """
+    import os
+    from datetime import datetime, timedelta, timezone
+
+    cleaned_items: List[Dict[str, Any]] = []
+    threshold_dt = datetime.now(timezone.utc) - timedelta(days=days)
+
+    async with get_connection(db_path) as db:
+        cursor = await db.execute(
+            """
+            SELECT id, file_path, file_name, file_created_at, created_at
+            FROM homework
+            WHERE file_path IS NOT NULL AND file_name != '[Срок хранения файла истек]';
+            """
+        )
+        rows = await cursor.fetchall()
+        for row in rows:
+            raw_time = row["file_created_at"] or row["created_at"]
+            is_expired = False
+            if raw_time:
+                try:
+                    dt = datetime.fromisoformat(str(raw_time).replace(" ", "T"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    if dt <= threshold_dt:
+                        is_expired = True
+                except Exception:
+                    pass
+
+            if is_expired:
+                f_path = row["file_path"]
+                if f_path and os.path.exists(f_path):
+                    try:
+                        os.remove(f_path)
+                    except OSError:
+                        pass
+
+                await db.execute(
+                    """
+                    UPDATE homework
+                    SET file_path = NULL, file_name = '[Срок хранения файла истек]'
+                    WHERE id = ?;
+                    """,
+                    (row["id"],),
+                )
+                cleaned_items.append({
+                    "id": row["id"],
+                    "old_file_path": f_path,
+                    "old_file_name": row["file_name"],
+                })
+
+        await db.commit()
+    return cleaned_items
 
 
 # =====================================================================

@@ -46,6 +46,9 @@ from bot.database import (
     spin_random_for_topic,
     claim_topic,
     unclaim_topic,
+    cleanup_expired_homework_files,
+    get_homework_by_id,
+    update_homework,
 )
 
 TEST_DB_PATH = "test_homeworker.db"
@@ -322,6 +325,92 @@ class TestDatabase(unittest.IsolatedAsyncioTestCase):
         ok_again, _, _, _, msg_again = await spin_random_for_topic(topic_a["id"], TEST_DB_PATH)
         self.assertFalse(ok_again)
         self.assertIn("уже закреплена", msg_again)
+
+    async def test_homework_file_attachment_and_cleanup(self) -> None:
+        """Проверка прикрепления файлов к ДЗ, удаления и очистки по TTL (7 дней)."""
+        import tempfile
+        from datetime import datetime, timedelta, timezone
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_old_path = os.path.join(tmp_dir, "old_document.pdf")
+            with open(file_old_path, "wb") as f:
+                f.write(b"%PDF-1.4 test old content")
+
+            file_fresh_path = os.path.join(tmp_dir, "fresh_document.pdf")
+            with open(file_fresh_path, "wb") as f:
+                f.write(b"%PDF-1.4 test fresh content")
+
+            # 1. Задание со старым файлом (8 дней назад)
+            old_time = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+            hw_old_id = await add_homework(
+                subject_id=1,
+                due_date="20.10.2026",
+                task_text="Старое задание",
+                db_path=TEST_DB_PATH,
+                file_path=file_old_path,
+                file_name="old_document.pdf",
+                file_size=len(b"%PDF-1.4 test old content"),
+                file_created_at=old_time,
+            )
+
+            # 2. Задание со свежим файлом (сейчас)
+            fresh_time = datetime.now(timezone.utc).isoformat()
+            hw_fresh_id = await add_homework(
+                subject_id=1,
+                due_date="01.11.2026",
+                task_text="Свежее задание",
+                db_path=TEST_DB_PATH,
+                file_path=file_fresh_path,
+                file_name="fresh_document.pdf",
+                file_size=len(b"%PDF-1.4 test fresh content"),
+                file_created_at=fresh_time,
+            )
+
+            # Проверяем, что оба файла существуют на диске
+            self.assertTrue(os.path.exists(file_old_path))
+            self.assertTrue(os.path.exists(file_fresh_path))
+
+            # 3. Запуск фоновой очистки просроченных файлов (старше 7 дней)
+            cleaned = await cleanup_expired_homework_files(days=7, db_path=TEST_DB_PATH)
+            self.assertEqual(len(cleaned), 1)
+            self.assertEqual(cleaned[0]["id"], hw_old_id)
+
+            # Старый файл должен быть физически удален с диска
+            self.assertFalse(os.path.exists(file_old_path))
+            # Свежий файл должен остаться на месте
+            self.assertTrue(os.path.exists(file_fresh_path))
+
+            # Проверяем статус в БД
+            hw_old_db = await get_homework_by_id(hw_old_id, TEST_DB_PATH)
+            self.assertIsNone(hw_old_db["file_path"])
+            self.assertEqual(hw_old_db["file_name"], "[Срок хранения файла истек]")
+
+            hw_fresh_db = await get_homework_by_id(hw_fresh_id, TEST_DB_PATH)
+            self.assertEqual(hw_fresh_db["file_path"], file_fresh_path)
+            self.assertEqual(hw_fresh_db["file_name"], "fresh_document.pdf")
+
+            # 4. Проверка update_homework с clear_file
+            await update_homework(hw_fresh_id, clear_file=True, db_path=TEST_DB_PATH)
+            hw_fresh_cleared = await get_homework_by_id(hw_fresh_id, TEST_DB_PATH)
+            self.assertIsNone(hw_fresh_cleared["file_path"])
+            self.assertIsNone(hw_fresh_cleared["file_name"])
+
+            # 5. Проверка delete_homework удаляет файл с диска
+            file_del_path = os.path.join(tmp_dir, "to_delete.pdf")
+            with open(file_del_path, "wb") as f:
+                f.write(b"delete me")
+
+            hw_del_id = await add_homework(
+                subject_id=1,
+                due_date="05.11.2026",
+                task_text="Удаляемое задание",
+                db_path=TEST_DB_PATH,
+                file_path=file_del_path,
+                file_name="to_delete.pdf",
+            )
+            self.assertTrue(os.path.exists(file_del_path))
+            await delete_homework(hw_del_id, TEST_DB_PATH)
+            self.assertFalse(os.path.exists(file_del_path))
 
 
 if __name__ == "__main__":

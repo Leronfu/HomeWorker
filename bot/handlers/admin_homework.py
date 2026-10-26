@@ -2,7 +2,11 @@
 
 import html
 import logging
-from aiogram import F, Router
+import os
+import time
+import uuid
+from typing import Optional
+from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -215,22 +219,22 @@ async def process_due_date_input(message: Message, state: FSMContext) -> None:
     await message.answer(
         f"📚 Предмет: <b>{html.escape(subject_name)}</b>\n"
         f"📅 Срок сдачи: <code>{html.escape(due_date)}</code>\n\n"
-        "Шаг 2 из 2: Отправьте сообщением <b>текст задания</b>\n"
-        "<i>(номера параграфов, вопросы, ссылки или описание того, что нужно сделать):</i>",
+        "Шаг 2 из 2: Отправьте сообщением <b>текст задания</b> или <b>файл</b> "
+        "(PDF, документ или фото с описанием задания в подписи):",
         reply_markup=get_cancel_hw_keyboard(back_callback="ahw_menu_add"),
     )
 
 
-@router.message(HomeworkAdminStates.waiting_for_task_text, F.text)
-async def process_task_text_input(message: Message, state: FSMContext) -> None:
-    """Обработка ввода текста задания и сохранение в базу данных."""
+@router.message(HomeworkAdminStates.waiting_for_task_text, F.text | F.document | F.photo)
+async def process_task_text_input(message: Message, state: FSMContext, bot: Optional[Bot] = None) -> None:
+    """Обработка ввода текста задания/файла и сохранение в базу данных."""
+    target_bot = bot or message.bot
     if not _is_admin_check(message.from_user.id):
         await message.answer("⛔ У вас нет доступа к панели старосты.")
         await state.clear()
         return
 
-    task_text = message.text.strip()
-    if task_text.lower() in ("/cancel", "отмена"):
+    if message.text and message.text.strip().lower() in ("/cancel", "отмена"):
         await state.clear()
         await message.answer(
             "❌ Добавление задания отменено.",
@@ -248,19 +252,59 @@ async def process_task_text_input(message: Message, state: FSMContext) -> None:
         await message.answer("⚠️ Ошибка контекста: предмет не выбран.", reply_markup=get_admin_homework_menu_keyboard())
         return
 
+    file_path = None
+    file_name = None
+    file_size = None
+    task_text = ""
+
+    doc = getattr(message, "document", None)
+    photos = getattr(message, "photo", None)
+
+    if doc:
+        orig_name = doc.file_name or f"hw_{int(time.time())}.pdf"
+        file_name = orig_name
+        file_size = doc.file_size
+        task_text = (getattr(message, "caption", None) or "").strip() or f"См. прикрепленный файл ({file_name})"
+        os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+        unique_token = f"{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        disk_filename = f"{unique_token}_{orig_name}"
+        file_path = os.path.join(config.UPLOAD_DIR, disk_filename)
+        if target_bot:
+            await target_bot.download(doc, destination=file_path)
+    elif photos:
+        photo = photos[-1]
+        file_name = f"homework_photo_{int(time.time())}.jpg"
+        file_size = photo.file_size
+        task_text = (getattr(message, "caption", None) or "").strip() or "См. прикрепленное фото к заданию"
+        os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+        unique_token = f"{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        disk_filename = f"{unique_token}_{file_name}"
+        file_path = os.path.join(config.UPLOAD_DIR, disk_filename)
+        if target_bot:
+            await target_bot.download(photo, destination=file_path)
+    else:
+        task_text = message.text.strip() if getattr(message, "text", None) else ""
+
     try:
         hw_id = await add_homework(
             subject_id=subject_id,
             due_date=due_date,
             task_text=task_text,
             db_path=config.DB_PATH,
+            file_path=file_path,
+            file_name=file_name,
+            file_size=file_size,
         )
         await state.clear()
+
+        file_notice = ""
+        if file_name:
+            file_notice = f"\n📎 <b>Файл:</b> {html.escape(file_name)} <i>(хранится 7 дней)</i>"
 
         confirm_text = (
             f"✅ <b>Домашнее задание #{hw_id} успешно опубликовано!</b>\n\n"
             f"📚 <b>Предмет:</b> {html.escape(subject_name)}\n"
-            f"📅 <b>Срок:</b> <code>{html.escape(due_date)}</code>\n\n"
+            f"📅 <b>Срок:</b> <code>{html.escape(due_date)}</code>{file_notice}\n\n"
             f"📖 <b>Задание:</b>\n{html.escape(task_text)}"
         )
 
@@ -385,11 +429,14 @@ async def show_admin_homework_detail(callback: CallbackQuery, state: FSMContext)
         return
 
     text = format_homework_detail_admin(hw)
+    has_file = bool(hw.get("file_path") and hw.get("file_name") and hw.get("file_name") != "[Срок хранения файла истек]")
     if callback.message:
         try:
             await callback.message.edit_text(
                 text=text,
-                reply_markup=get_admin_homework_detail_keyboard(homework_id, hw["subject_id"]),
+                reply_markup=get_admin_homework_detail_keyboard(
+                    homework_id, hw["subject_id"], has_file=has_file
+                ),
             )
         except TelegramBadRequest:
             pass

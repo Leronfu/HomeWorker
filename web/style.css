@@ -529,6 +529,47 @@ body {
   padding-top: 10px;
 }
 
+.hw-file-wrap {
+  margin: 10px 0 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hw-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f7ede8;
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-rose-border);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition-fast);
+}
+
+.hw-file-link:hover {
+  background: #f0ddd6;
+  border-color: var(--accent-primary);
+}
+
+.hw-file-expired-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f1edea;
+  color: var(--text-muted);
+  border: 1px dashed #d5cbc6;
+  padding: 5px 11px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  font-style: italic;
+}
+
 /* Карточки пулов докладов */
 .reports-batches-list {
   display: flex;

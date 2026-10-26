@@ -31,6 +31,7 @@ WEB_HOST: str = cloud_ip or os.getenv("WEB_HOST") or "0.0.0.0"
 raw_port = cloud_port or os.getenv("WEB_PORT") or "8080"
 WEB_PORT: int = int(str(raw_port).strip())
 WEB_APP_URL: str = os.getenv("WEB_APP_URL", f"http://localhost:{WEB_PORT}").strip()
+UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "uploads/homework").strip()
 
 def is_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь администратором."""

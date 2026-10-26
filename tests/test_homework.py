@@ -54,6 +54,7 @@ from bot.handlers.admin_homework import (
 )
 from bot.handlers.homework import (
     back_to_homework_subjects,
+    download_homework_file_handler,
     refresh_subject_homework,
     show_homework_subjects_menu,
     show_subject_homework,
@@ -314,6 +315,45 @@ class TestHomeworkModule(unittest.IsolatedAsyncioTestCase):
         # Проверяем, что задание удалено из БД
         hw_deleted = await get_homework_by_id(hw_id, TEST_DB_PATH)
         self.assertIsNone(hw_deleted)
+
+    async def test_student_download_file_handler(self) -> None:
+        """Проверка работы скачивания файла студентом через Telegram-бота."""
+        import tempfile
+        from bot.database import add_homework, update_homework
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = os.path.join(tmp_dir, "test_task.pdf")
+            with open(file_path, "wb") as f:
+                f.write(b"sample file content")
+
+            hw_id = await add_homework(
+                subject_id=1,
+                due_date="10.11.2026",
+                task_text="Задание с файлом",
+                db_path=TEST_DB_PATH,
+                file_path=file_path,
+                file_name="test_task.pdf",
+            )
+
+            # 1. Студент скачивает активный файл
+            cb_dl = self._create_mock_callback(12345, f"hw_dl:{hw_id}")
+            cb_dl.message.answer_document = AsyncMock()
+            await download_homework_file_handler(cb_dl)
+            cb_dl.message.answer_document.assert_called_once()
+            call_args = cb_dl.message.answer_document.call_args[1]
+            self.assertEqual(call_args["document"].filename, "test_task.pdf")
+
+            # 2. Просроченный файл
+            await update_homework(
+                hw_id,
+                file_path=None,
+                file_name="[Срок хранения файла истек]",
+                db_path=TEST_DB_PATH,
+            )
+            cb_exp = self._create_mock_callback(12345, f"hw_dl:{hw_id}")
+            await download_homework_file_handler(cb_exp)
+            cb_exp.answer.assert_called_once()
+            self.assertIn("истек", cb_exp.answer.call_args[0][0])
 
 
 if __name__ == "__main__":

@@ -118,6 +118,10 @@
     hwManualSubjectInput: document.getElementById('hwManualSubjectInput'),
     hwDueDate: document.getElementById('hwDueDate'),
     hwTaskText: document.getElementById('hwTaskText'),
+    hwFileInput: document.getElementById('hwFileInput'),
+    hwCurrentFileInfo: document.getElementById('hwCurrentFileInfo'),
+    hwCurrentFileName: document.getElementById('hwCurrentFileName'),
+    btnRemoveHwFile: document.getElementById('btnRemoveHwFile'),
     modalReportBatch: document.getElementById('modalReportBatch'),
     formReportBatch: document.getElementById('formReportBatch'),
     reportSubjectSelect: document.getElementById('reportSubjectSelect'),
@@ -183,9 +187,12 @@
   // Клиент API с прозрачной поддержкой Telegram initData и fallback
   async function apiFetch(endpoint, options = {}) {
     const headers = {
-      'Content-Type': 'application/json',
       ...(options.headers || {}),
     };
+
+    if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     if (state.isTelegram && tg?.initData) {
       headers['Authorization'] = `tma ${tg.initData}`;
@@ -590,12 +597,31 @@
         `
         : '';
 
+      let fileHtml = '';
+      if (hw.has_file && hw.download_url) {
+        const sizeText = hw.file_size ? ` (${Math.round(hw.file_size / 1024)} КБ)` : '';
+        fileHtml = `
+          <div class="hw-file-wrap">
+            <a href="${hw.download_url}" target="_blank" class="hw-file-link" download>
+              📥 ${escapeHtml(hw.file_name || 'Скачать файл')}${sizeText}
+            </a>
+          </div>
+        `;
+      } else if (hw.is_file_expired || hw.file_name === '[Срок хранения файла истек]') {
+        fileHtml = `
+          <div class="hw-file-wrap">
+            <span class="hw-file-expired-badge">📎 Срок хранения файла истек (7 дней)</span>
+          </div>
+        `;
+      }
+
       card.innerHTML = `
         <div class="hw-card-top">
           <span class="hw-subject-badge">📖 ${escapeHtml(hw.subject_name || 'Предмет')}</span>
           <span class="hw-due-badge">⏰ ${escapeHtml(hw.due_date)}</span>
         </div>
         <div class="hw-text">${escapeHtml(hw.task_text)}</div>
+        ${fileHtml}
         ${adminActionsHtml}
       `;
 
@@ -605,6 +631,18 @@
         document.getElementById('groupHwSubject').style.display = 'none';
         elements.hwDueDate.value = hw.due_date;
         elements.hwTaskText.value = hw.task_text;
+        currentHwRemoveFile = false;
+        if (elements.hwFileInput) elements.hwFileInput.value = '';
+        if (elements.hwCurrentFileInfo) {
+          if (hw.has_file && !hw.is_file_expired) {
+            elements.hwCurrentFileInfo.classList.remove('hidden');
+            if (elements.hwCurrentFileName) {
+              elements.hwCurrentFileName.textContent = `📎 ${hw.file_name || 'Файл прикреплен'}`;
+            }
+          } else {
+            elements.hwCurrentFileInfo.classList.add('hidden');
+          }
+        }
         openModal(elements.modalHomework);
       });
 
@@ -627,7 +665,17 @@
     });
   }
 
+  let currentHwRemoveFile = false;
+
   function setupHomeworkEvents() {
+    // Удаление прикрепленного файла в модалке
+    elements.btnRemoveHwFile?.addEventListener('click', () => {
+      currentHwRemoveFile = true;
+      if (elements.hwFileInput) elements.hwFileInput.value = '';
+      elements.hwCurrentFileInfo?.classList.add('hidden');
+      showToast('Прикрепленный файл будет удален', 'info');
+    });
+
     // Открытие модалки добавления ДЗ
     document.getElementById('btnOpenAddHwModal')?.addEventListener('click', () => {
       elements.modalHomeworkTitle.textContent = 'Новое домашнее задание';
@@ -638,6 +686,9 @@
       if (elements.hwSubjectSelect && elements.hwSubjectSelect.options.length > 0) {
         elements.hwSubjectSelect.selectedIndex = 0;
       }
+      currentHwRemoveFile = false;
+      if (elements.hwFileInput) elements.hwFileInput.value = '';
+      elements.hwCurrentFileInfo?.classList.add('hidden');
       elements.formHomework.reset();
       openModal(elements.modalHomework);
     });
@@ -699,18 +750,55 @@
         }
       }
 
+      const hasNewFile = elements.hwFileInput?.files && elements.hwFileInput.files.length > 0;
+      const isMultipartNeeded = Boolean(hasNewFile || currentHwRemoveFile);
+
       try {
         if (hwId) {
-          await apiFetch(`/api/homework/${hwId}`, {
-            method: 'PUT',
-            body: JSON.stringify({ due_date, task_text }),
-          });
+          if (isMultipartNeeded) {
+            const formData = new FormData();
+            formData.append('due_date', due_date);
+            formData.append('task_text', task_text);
+            if (hasNewFile) {
+              formData.append('file', elements.hwFileInput.files[0]);
+            }
+            if (currentHwRemoveFile) {
+              formData.append('clear_file', '1');
+            }
+            await apiFetch(`/api/homework/${hwId}`, {
+              method: 'PUT',
+              body: formData,
+            });
+          } else {
+            await apiFetch(`/api/homework/${hwId}`, {
+              method: 'PUT',
+              body: JSON.stringify({ due_date, task_text }),
+            });
+          }
           showToast('Домашнее задание обновлено!', 'success');
         } else {
-          await apiFetch('/api/homework', {
-            method: 'POST',
-            body: JSON.stringify(payload),
-          });
+          if (isMultipartNeeded) {
+            const formData = new FormData();
+            formData.append('due_date', due_date);
+            formData.append('task_text', task_text);
+            if (isManual) {
+              formData.append('subject_name', manualSubjectName);
+            } else {
+              formData.append('subject_id', subject_id_to_use);
+            }
+            if (hasNewFile) {
+              formData.append('file', elements.hwFileInput.files[0]);
+            }
+            await apiFetch('/api/homework', {
+              method: 'POST',
+              body: formData,
+            });
+          } else {
+            await apiFetch('/api/homework', {
+              method: 'POST',
+              body: JSON.stringify(payload),
+            });
+          }
           showToast('Домашнее задание добавлено!', 'success');
           await loadSubjects();
         }

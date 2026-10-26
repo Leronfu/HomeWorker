@@ -22,9 +22,17 @@ def format_homework_list_student(subject_name: str, homework_list: List[Dict[str
     for idx, hw in enumerate(homework_list, start=1):
         due_date = html.escape(str(hw.get("due_date", "—")))
         task_text = html.escape(str(hw.get("task_text", "")).strip())
+        file_info = ""
+        f_name = hw.get("file_name")
+        if f_name:
+            if f_name == "[Срок хранения файла истек]":
+                file_info = "\n📎 <i>[Срок хранения файла истек]</i>"
+            else:
+                file_info = f"\n📎 <b>Прикрепленный файл:</b> {html.escape(f_name)}"
+
         lines.append(
             f"📌 <b>Задание #{idx}</b> (срок: <code>{due_date}</code>)\n"
-            f"{task_text}\n"
+            f"{task_text}{file_info}\n"
         )
 
     return "\n".join(lines)
@@ -37,9 +45,18 @@ def format_homework_detail_admin(homework: Dict[str, Any]) -> str:
     task_text = html.escape(str(homework.get("task_text", "")).strip())
     hw_id = homework.get("id")
 
+    file_info = ""
+    f_name = homework.get("file_name")
+    if f_name:
+        if f_name == "[Срок хранения файла истек]":
+            file_info = "\n📎 <i>[Срок хранения файла истек]</i>\n"
+        else:
+            file_info = f"\n📎 <b>Файл:</b> {html.escape(f_name)}\n"
+
     return (
         f"📋 <b>Управление заданием #{hw_id}</b>\n\n"
         f"📚 <b>Предмет:</b> {subject_name}\n"
-        f"📅 <b>Срок сдачи:</b> <code>{due_date}</code>\n\n"
+        f"📅 <b>Срок сдачи:</b> <code>{due_date}</code>\n"
+        f"{file_info}\n"
         f"✍️ <b>Текст задания:</b>\n{task_text}"
     )
