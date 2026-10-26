@@ -473,9 +473,7 @@ async def handle_publish_reports_batch(request: web.Request) -> web.Response:
     if scheduler:
         cancel_scheduled_report_job(batch_id)
 
-    await publish_report_batch(batch_id)
-    if bot:
-        await broadcast_report_drop(bot, batch_id)
+    await publish_report_job(bot, batch_id)
 
     return json_response({"ok": True, "message": "Доклады успешно опубликованы и разосланы группе!"})
 

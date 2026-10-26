@@ -29,6 +29,9 @@ from aiogram.types import CallbackQuery, Message, User
 
 from bot import config
 from bot.database import (
+    add_or_update_user,
+    auto_assign_remaining_topics,
+    claim_topic,
     create_report_batch,
     delete_report_batch,
     get_all_report_batches,
@@ -53,6 +56,8 @@ from bot.handlers.admin_reports import (
 )
 from bot.handlers.states import ReportAdminStates
 from bot.utils import (
+    auto_assign_report_batch_job,
+    calculate_auto_assign_datetime,
     cancel_scheduled_report_job,
     format_report_batch_admin,
     generate_random_release_datetime,
@@ -61,6 +66,7 @@ from bot.utils import (
     parse_topics_text,
     publish_report_job,
     restore_pending_report_jobs,
+    schedule_auto_assign_job,
     schedule_report_release,
     scheduler,
 )
@@ -408,6 +414,122 @@ class TestReportsAdminModule(unittest.IsolatedAsyncioTestCase):
         sent_texts = [call[1]["text"] for call in mock_bot.send_message.call_args_list]
         admin_alert_present = any("РАНДОМАЙЗЕР ВЫЛОЖИЛ РАБОТЫ!" in t for t in sent_texts)
         self.assertTrue(admin_alert_present)
+
+    # -------------------------------------------------------------
+    # 6. Авто-распределение неразобранных тем (Шаг 14)
+    # -------------------------------------------------------------
+    def test_calculate_auto_assign_datetime(self) -> None:
+        """Проверка расчета времени авто-раздачи: через 2 дня в 09:50 МСК."""
+        target_dt = calculate_auto_assign_datetime("28.10.2026")
+        self.assertIsNotNone(target_dt)
+        self.assertEqual(target_dt.year, 2026)
+        self.assertEqual(target_dt.month, 10)
+        self.assertEqual(target_dt.day, 30)
+        self.assertEqual(target_dt.hour, 9)
+        self.assertEqual(target_dt.minute, 50)
+        self.assertEqual(target_dt.second, 0)
+        self.assertEqual(target_dt.tzinfo, MSK_TZ)
+
+    async def test_auto_assign_remaining_topics_database(self) -> None:
+        """Проверка атомарного случайного распределения оставшихся тем в БД."""
+        # 1. Создаем партию докладов
+        b_id = await create_report_batch(
+            subject_id=2,
+            seminar_date="12.11.2026",
+            release_date="10.11.2026",
+            release_datetime_random="2026-11-10 12:00:00",
+            topics=["Тема 1", "Тема 2", "Тема 3"],
+            db_path=TEST_DB_PATH,
+        )
+        await publish_report_batch(b_id, TEST_DB_PATH)
+
+        # 2. Регистрируем 3 студентов
+        await add_or_update_user(101, "ivan", "Иван Иванов", db_path=TEST_DB_PATH)
+        await add_or_update_user(102, "petr", "Петр Петров", db_path=TEST_DB_PATH)
+        await add_or_update_user(103, "anna", "Анна Смирнова", db_path=TEST_DB_PATH)
+
+        # 3. Иван добровольно забирает Тему 1
+        topics = await get_batch_topics(b_id, TEST_DB_PATH)
+        await claim_topic(topics[0]["id"], 101, TEST_DB_PATH)
+
+        # 4. Запускаем авто-распределение
+        res = await auto_assign_remaining_topics(b_id, TEST_DB_PATH)
+        self.assertEqual(res["unassigned_count"], 2)
+        self.assertEqual(len(res["assigned"]), 2)
+        self.assertEqual(res["remaining_unassigned"], 0)
+
+        # Проверяем, что Тема 2 и Тема 3 распределены между Петром и Анной
+        assigned_user_ids = {item["student"]["telegram_id"] for item in res["assigned"]}
+        self.assertEqual(assigned_user_ids, {102, 103})
+
+        # Проверяем состояние в БД: все 3 темы заняты
+        topics_after = await get_batch_topics(b_id, TEST_DB_PATH)
+        self.assertTrue(all(t["user_id"] is not None for t in topics_after))
+
+        # Повторный вызов не распределяет ничего
+        res_repeat = await auto_assign_remaining_topics(b_id, TEST_DB_PATH)
+        self.assertEqual(res_repeat["unassigned_count"], 0)
+        self.assertEqual(len(res_repeat["assigned"]), 0)
+
+    async def test_auto_assign_report_batch_job_notifications(self) -> None:
+        """Проверка персональных уведомлений студентам и отчета старосте."""
+        b_id = await create_report_batch(
+            subject_id=1,
+            seminar_date="14.11.2026",
+            release_date="12.11.2026",
+            release_datetime_random="2026-11-12 12:00:00",
+            topics=["Экспериментальный метод"],
+            db_path=TEST_DB_PATH,
+        )
+        await publish_report_batch(b_id, TEST_DB_PATH)
+
+        await add_or_update_user(201, "olga", "Ольга Сидорова", db_path=TEST_DB_PATH)
+
+        mock_bot = MagicMock()
+        mock_bot.send_message = AsyncMock()
+
+        res = await auto_assign_report_batch_job(mock_bot, b_id, db_path=TEST_DB_PATH)
+        self.assertEqual(len(res["assigned"]), 1)
+
+        # Должно быть отправлено 2 сообщения: 1 студенту 201 и 1 старосте 999
+        self.assertEqual(mock_bot.send_message.call_count, 2)
+        calls = mock_bot.send_message.call_args_list
+
+        student_call = next(c for c in calls if c[1]["chat_id"] == 201)
+        self.assertIn("Вам автоматически назначен доклад!", student_call[1]["text"])
+        self.assertIn("Экспериментальный метод", student_call[1]["text"])
+
+        admin_call = next(c for c in calls if c[1]["chat_id"] == 999)
+        self.assertIn("ОТЧЕТ ОБ АВТО-РАСПРЕДЕЛЕНИИ ДОКЛАДОВ", admin_call[1]["text"])
+        self.assertIn("Ольга Сидорова", admin_call[1]["text"])
+
+    async def test_auto_assign_all_topics_already_claimed(self) -> None:
+        """Проверка отчета старосте, когда все темы уже были заняты добровольно."""
+        b_id = await create_report_batch(
+            subject_id=1,
+            seminar_date="16.11.2026",
+            release_date="14.11.2026",
+            release_datetime_random="2026-11-14 12:00:00",
+            topics=["Тема Воли"],
+            db_path=TEST_DB_PATH,
+        )
+        await publish_report_batch(b_id, TEST_DB_PATH)
+        topics = await get_batch_topics(b_id, TEST_DB_PATH)
+        await add_or_update_user(301, "daria", "Дарья", db_path=TEST_DB_PATH)
+        await claim_topic(topics[0]["id"], 301, TEST_DB_PATH)
+
+        mock_bot = MagicMock()
+        mock_bot.send_message = AsyncMock()
+
+        res = await auto_assign_report_batch_job(mock_bot, b_id, db_path=TEST_DB_PATH)
+        self.assertEqual(res["unassigned_count"], 0)
+        self.assertEqual(len(res["assigned"]), 0)
+
+        # Старосте отправлено уведомление, что все темы были разобраны самостоятельно
+        mock_bot.send_message.assert_called_once()
+        admin_call = mock_bot.send_message.call_args[1]
+        self.assertEqual(admin_call["chat_id"], 999)
+        self.assertIn("Все темы докладов разобраны!", admin_call["text"])
 
 
 if __name__ == "__main__":

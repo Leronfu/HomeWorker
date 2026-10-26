@@ -33,6 +33,9 @@ from bot.database.db import (
     claim_topic,
     unclaim_topic,
     delete_report_batch,
+    get_pending_auto_assign_batches,
+    mark_batch_auto_assigned,
+    auto_assign_remaining_topics,
 )
 
 __all__ = [
@@ -67,4 +70,7 @@ __all__ = [
     "claim_topic",
     "unclaim_topic",
     "delete_report_batch",
+    "get_pending_auto_assign_batches",
+    "mark_batch_auto_assigned",
+    "auto_assign_remaining_topics",
 ]

@@ -106,6 +106,7 @@ async def init_db(db_path: Optional[str] = None) -> None:
                 release_date TEXT NOT NULL,
                 release_datetime_random TEXT NOT NULL,
                 is_published BOOLEAN NOT NULL DEFAULT 0,
+                is_auto_assigned BOOLEAN NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """
@@ -124,6 +125,12 @@ async def init_db(db_path: Optional[str] = None) -> None:
             );
             """
         )
+
+        # Миграция: добавление колонки is_auto_assigned для существующих БД
+        try:
+            await db.execute("ALTER TABLE report_batches ADD COLUMN is_auto_assigned BOOLEAN NOT NULL DEFAULT 0;")
+        except Exception:
+            pass
 
         # Первичное заполнение предметов
         for subject_name in DEFAULT_SUBJECTS:
@@ -616,3 +623,98 @@ async def delete_report_batch(batch_id: int, db_path: Optional[str] = None) -> b
         cursor = await db.execute("DELETE FROM report_batches WHERE id = ?;", (batch_id,))
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def get_pending_auto_assign_batches(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Получить опубликованные партии докладов, для которых еще не выполнялось авто-распределение."""
+    async with get_connection(db_path) as db:
+        cursor = await db.execute(
+            """
+            SELECT b.*, s.name as subject_name
+            FROM report_batches b
+            JOIN subjects s ON b.subject_id = s.id
+            WHERE b.is_published = 1 AND (b.is_auto_assigned IS NULL OR b.is_auto_assigned = 0)
+            ORDER BY b.id ASC;
+            """
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def mark_batch_auto_assigned(batch_id: int, db_path: Optional[str] = None) -> bool:
+    """Пометить партию докладов как прошедшую авто-распределение."""
+    async with get_connection(db_path) as db:
+        cursor = await db.execute(
+            "UPDATE report_batches SET is_auto_assigned = 1 WHERE id = ?;",
+            (batch_id,),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def auto_assign_remaining_topics(
+    batch_id: int, db_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """Автоматически случайно распределить оставшиеся свободные темы среди студентов группы."""
+    import random
+
+    from bot import config
+
+    actual_db = db_path or config.DB_PATH
+    batch = await get_batch_by_id(batch_id, actual_db)
+    if not batch:
+        return {"batch": None, "assigned": [], "unassigned_count": 0, "remaining_unassigned": 0}
+
+    topics = await get_batch_topics(batch_id, actual_db)
+    free_topics = [t for t in topics if not t.get("user_id")]
+    already_assigned_user_ids = {t["user_id"] for t in topics if t.get("user_id")}
+
+    if not free_topics:
+        # Все темы уже разобраны студентами самостоятельно
+        await mark_batch_auto_assigned(batch_id, actual_db)
+        return {
+            "batch": batch,
+            "assigned": [],
+            "unassigned_count": 0,
+            "remaining_unassigned": 0,
+        }
+
+    all_users = await get_all_users(actual_db)
+    # Студенты, которые еще не взяли доклад в этой партии
+    eligible_students = [u for u in all_users if u["telegram_id"] not in already_assigned_user_ids]
+
+    assigned_pairs: List[Dict[str, Any]] = []
+
+    if eligible_students:
+        random.shuffle(eligible_students)
+        assign_count = min(len(free_topics), len(eligible_students))
+
+        async with get_connection(actual_db) as db:
+            for i in range(assign_count):
+                topic = free_topics[i]
+                student = eligible_students[i]
+
+                cursor = await db.execute(
+                    """
+                    UPDATE report_topics
+                    SET user_id = ?, assigned_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND user_id IS NULL;
+                    """,
+                    (student["telegram_id"], topic["id"]),
+                )
+                if cursor.rowcount > 0:
+                    assigned_pairs.append({
+                        "topic": topic,
+                        "student": student,
+                    })
+            await db.commit()
+
+    await mark_batch_auto_assigned(batch_id, actual_db)
+
+    remaining_count = len(free_topics) - len(assigned_pairs)
+    return {
+        "batch": batch,
+        "assigned": assigned_pairs,
+        "unassigned_count": len(free_topics),
+        "remaining_unassigned": remaining_count,
+    }
