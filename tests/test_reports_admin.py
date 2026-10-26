@@ -56,6 +56,7 @@ from bot.utils import (
     cancel_scheduled_report_job,
     format_report_batch_admin,
     generate_random_release_datetime,
+    notify_admins_report_drop,
     parse_release_date,
     parse_topics_text,
     publish_report_job,
@@ -357,6 +358,56 @@ class TestReportsAdminModule(unittest.IsolatedAsyncioTestCase):
         # Просроченная задача должна быть сразу опубликована
         batch_past_db = await get_batch_by_id(b_past, TEST_DB_PATH)
         self.assertEqual(batch_past_db["is_published"], 1)
+
+    async def test_notify_admins_report_drop(self) -> None:
+        """Проверка отправки персонального уведомления администраторам при дропе докладов."""
+        b_id = await create_report_batch(
+            subject_id=1,
+            seminar_date="15.12.2026",
+            release_date="10.12.2026",
+            release_datetime_random="2026-12-10 14:00:00",
+            topics=["Тема 1", "Тема 2", "Тема 3"],
+            db_path=TEST_DB_PATH,
+        )
+
+        mock_bot = MagicMock()
+        mock_bot.send_message = AsyncMock()
+
+        notified_count = await notify_admins_report_drop(mock_bot, b_id, db_path=TEST_DB_PATH)
+        self.assertEqual(notified_count, 1)
+        mock_bot.send_message.assert_called_once()
+        call_args = mock_bot.send_message.call_args[1]
+        self.assertEqual(call_args["chat_id"], 999)
+        self.assertIn("РАНДОМАЙЗЕР ВЫЛОЖИЛ РАБОТЫ!", call_args["text"])
+        self.assertIn("Психология эмоций и мотивации", call_args["text"])
+        self.assertIn("15.12.2026", call_args["text"])
+        self.assertIn("3", call_args["text"])
+
+    async def test_publish_report_job_notifies_admins_and_broadcasts(self) -> None:
+        """Проверка, что publish_report_job выполняет и общую рассылку, и уведомление старост."""
+        b_id = await create_report_batch(
+            subject_id=3,
+            seminar_date="20.12.2026",
+            release_date="18.12.2026",
+            release_datetime_random="2026-12-18 11:30:00",
+            topics=["Тема Диагностики"],
+            db_path=TEST_DB_PATH,
+        )
+
+        mock_bot = MagicMock()
+        mock_bot.send_message = AsyncMock()
+
+        await publish_report_job(mock_bot, b_id)
+
+        # Партия помечена как опубликованная
+        b_db = await get_batch_by_id(b_id, TEST_DB_PATH)
+        self.assertEqual(b_db["is_published"], 1)
+
+        # Бот отправил сообщения (как минимум админу 999)
+        self.assertTrue(mock_bot.send_message.called)
+        sent_texts = [call[1]["text"] for call in mock_bot.send_message.call_args_list]
+        admin_alert_present = any("РАНДОМАЙЗЕР ВЫЛОЖИЛ РАБОТЫ!" in t for t in sent_texts)
+        self.assertTrue(admin_alert_present)
 
 
 if __name__ == "__main__":

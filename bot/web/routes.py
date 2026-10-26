@@ -34,7 +34,11 @@ from bot.database import (
     update_homework,
     update_schedule_day,
 )
-from bot.utils.scheduler import broadcast_report_drop
+from bot.utils.scheduler import (
+    broadcast_report_drop,
+    cancel_scheduled_report_job,
+    publish_report_job,
+)
 from bot.utils.report_helpers import generate_random_release_datetime
 from bot.web.auth import validate_telegram_init_data
 
@@ -420,10 +424,10 @@ async def handle_create_reports_batch(request: web.Request) -> web.Response:
     now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
 
     if scheduler and bot:
-        job_id = f"report_drop_{batch_id}"
+        job_id = f"report_batch_{batch_id}"
         if random_release_dt > now_msk:
             scheduler.add_job(
-                broadcast_report_drop,
+                publish_report_job,
                 trigger="date",
                 run_date=random_release_dt,
                 args=[bot, batch_id],
@@ -432,9 +436,8 @@ async def handle_create_reports_batch(request: web.Request) -> web.Response:
             )
             logger.info("Запланирован дроп докладов #%s на %s", batch_id, random_release_str)
         else:
-            # Если время уже наступило, публикуем немедленно
-            await publish_report_batch(batch_id)
-            scheduler.add_job(broadcast_report_drop, args=[bot, batch_id])
+            # Если время уже наступило, публикуем немедленно (публикация + рассылка группе + уведомление старостам)
+            await publish_report_job(bot, batch_id)
 
     return json_response({
         "ok": True,
@@ -451,11 +454,7 @@ async def handle_delete_reports_batch(request: web.Request) -> web.Response:
 
     scheduler = _get_scheduler(request.app)
     if scheduler:
-        job_id = f"report_drop_{batch_id}"
-        try:
-            scheduler.remove_job(job_id)
-        except Exception:
-            pass
+        cancel_scheduled_report_job(batch_id)
 
     deleted = await delete_report_batch(batch_id)
     if not deleted:
@@ -472,11 +471,7 @@ async def handle_publish_reports_batch(request: web.Request) -> web.Response:
     bot = _get_bot(request.app)
 
     if scheduler:
-        job_id = f"report_drop_{batch_id}"
-        try:
-            scheduler.remove_job(job_id)
-        except Exception:
-            pass
+        cancel_scheduled_report_job(batch_id)
 
     await publish_report_batch(batch_id)
     if bot:

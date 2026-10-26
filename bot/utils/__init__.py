@@ -20,6 +20,7 @@ from bot.utils.schedule_helpers import (
 from bot.utils.scheduler import (
     broadcast_report_drop,
     cancel_scheduled_report_job,
+    notify_admins_report_drop,
     publish_report_job,
     restore_pending_report_jobs,
     rollover_weekly_schedule,
@@ -47,6 +48,7 @@ __all__ = [
     "rollover_weekly_schedule",
     "publish_report_job",
     "broadcast_report_drop",
+    "notify_admins_report_drop",
     "schedule_report_release",
     "cancel_scheduled_report_job",
     "restore_pending_report_jobs",

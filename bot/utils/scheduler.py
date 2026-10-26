@@ -12,8 +12,10 @@ from datetime import datetime
 import zoneinfo
 from bot.database import (
     copy_next_to_current_week,
+    get_all_admin_ids,
     get_all_users,
     get_batch_by_id,
+    get_batch_topics,
     get_pending_report_batches,
     publish_report_batch,
 )
@@ -106,6 +108,57 @@ async def broadcast_report_drop(bot: Bot, batch_id: int) -> int:
     return sent_count
 
 
+async def notify_admins_report_drop(bot: Bot, batch_id: int, db_path: Optional[str] = None) -> int:
+    """Уведомление администраторов (старост) о том, что темы докладов были выложены рандомайзером."""
+    logger.info("Отправка уведомления администраторам о дропе batch_id=%s...", batch_id)
+    actual_db = db_path or config.DB_PATH
+    batch = await get_batch_by_id(batch_id, actual_db)
+    if not batch:
+        return 0
+
+    topics = await get_batch_topics(batch_id, actual_db)
+    subj_name = batch.get("subject_name", "Предмет")
+    seminar_date = batch.get("seminar_date", "—")
+    topics_count = len(topics)
+
+    admin_ids = await get_all_admin_ids(actual_db)
+    if not admin_ids:
+        logger.warning("Список администраторов пуст, уведомление о дропе некому отправить.")
+        return 0
+
+    admin_notification_text = (
+        "🎲 <b>РАНДОМАЙЗЕР ВЫЛОЖИЛ РАБОТЫ!</b> 🔔\n\n"
+        f"Наступило случайное время публикации докладов!\n"
+        f"📚 <b>Предмет:</b> «<b>{html.escape(subj_name)}</b>»\n"
+        f"🗓 <b>Дата семинара:</b> <code>{html.escape(seminar_date)}</code>\n"
+        f"📝 <b>Количество выложенных тем:</b> <code>{topics_count}</code>\n\n"
+        "📢 Уведомление разослано студентам группы. Запись на доклады открыта!"
+    )
+
+    url = config.WEB_APP_URL or "http://localhost:8080"
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👁 Открыть темы в Mini App",
+                    web_app=WebAppInfo(url=url),
+                )
+            ]
+        ]
+    )
+
+    sent_count = 0
+    for adm_id in admin_ids:
+        try:
+            await bot.send_message(chat_id=adm_id, text=admin_notification_text, reply_markup=markup)
+            sent_count += 1
+        except Exception as err:
+            logger.warning("Не удалось отправить уведомление о дропе администратору %s: %s", adm_id, err)
+
+    logger.info("Уведомление о дропе #%s отправлено %d администраторам.", batch_id, sent_count)
+    return sent_count
+
+
 async def publish_report_job(bot: Optional[Bot], batch_id: int) -> None:
     """Публикация партии докладов по наступлению назначенного случайного времени."""
     logger.info("Сработал триггер публикации докладов для batch_id=%s", batch_id)
@@ -126,6 +179,8 @@ async def publish_report_job(bot: Optional[Bot], batch_id: int) -> None:
         # 2. Массовая рассылка всем студентам учебной группы
         if bot:
             await broadcast_report_drop(bot, batch_id)
+            # 3. Персональное уведомление администраторам о состоявшемся дропе
+            await notify_admins_report_drop(bot, batch_id)
 
     except Exception as err:
         logger.error("Ошибка при публикации партии докладов %s: %s", batch_id, err, exc_info=True)

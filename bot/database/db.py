@@ -199,6 +199,22 @@ async def set_user_admin(telegram_id: int, is_admin: bool, db_path: Optional[str
         await db.commit()
 
 
+async def get_all_admin_ids(db_path: Optional[str] = None) -> List[int]:
+    """Получить уникальный список telegram_id всех администраторов (из config.ADMIN_IDS и БД)."""
+    from bot import config
+
+    admin_ids = set(config.ADMIN_IDS)
+    try:
+        async with get_connection(db_path) as db:
+            cursor = await db.execute("SELECT telegram_id FROM users WHERE is_admin = 1;")
+            rows = await cursor.fetchall()
+            for r in rows:
+                admin_ids.add(r["telegram_id"])
+    except Exception:
+        pass
+    return sorted(list(admin_ids))
+
+
 # =====================================================================
 # Функции работы с предметами (subjects)
 # =====================================================================
