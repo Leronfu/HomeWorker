@@ -29,6 +29,8 @@ from bot.database import (
     get_all_users,
     set_user_admin,
     get_all_subjects,
+    get_or_create_subject,
+    delete_subject,
     get_schedule,
     update_schedule_day,
     copy_next_to_current_week,
@@ -201,6 +203,48 @@ class TestDatabase(unittest.IsolatedAsyncioTestCase):
         # Теперь тема свободна, и студент 2 может ее взять
         claimed_by_2 = await claim_topic(first_topic_id, 222, TEST_DB_PATH)
         self.assertTrue(claimed_by_2)
+
+    async def test_add_and_delete_subject(self) -> None:
+        """Проверка добавления и безопасного удаления предметов."""
+        # 1. Добавление предмета
+        new_subj = await get_or_create_subject("Нейропсихология", TEST_DB_PATH)
+        new_id = new_subj["id"]
+        self.assertGreater(new_id, 0)
+
+        # 2. Повторное добавление того же имени возвращает существующий ID
+        same_subj = await get_or_create_subject("  Нейропсихология  ", TEST_DB_PATH)
+        self.assertEqual(new_id, same_subj["id"])
+
+        subjects = await get_all_subjects(TEST_DB_PATH)
+        self.assertIn("Нейропсихология", [s["name"] for s in subjects])
+
+        # 3. Удаление предмета без связанных записей
+        ok_del, _ = await delete_subject(new_id, force=False, db_path=TEST_DB_PATH)
+        self.assertTrue(ok_del)
+        subjects_after = await get_all_subjects(TEST_DB_PATH)
+        self.assertNotIn("Нейропсихология", [s["name"] for s in subjects_after])
+
+        # 4. Создаем предмет со связанным докладом
+        subj_with_rep = await get_or_create_subject("Когнитивистика", TEST_DB_PATH)
+        subj_id = subj_with_rep["id"]
+        await create_report_batch(
+            subject_id=subj_id,
+            seminar_date="20.12.2026",
+            release_date="19.12.2026",
+            release_datetime_random="2026-12-19 12:00:00",
+            topics=["Тема когнитивистики"],
+            db_path=TEST_DB_PATH,
+        )
+
+        # Попытка удалить без force должна вернуть (False, сообщение)
+        ok_fail, fail_msg = await delete_subject(subj_id, force=False, db_path=TEST_DB_PATH)
+        self.assertFalse(ok_fail)
+        self.assertIn("привязано", fail_msg)
+
+        # Удаление с force=True разрешено
+        ok_forced, _ = await delete_subject(subj_id, force=True, db_path=TEST_DB_PATH)
+        self.assertTrue(ok_forced)
+
 
 
 if __name__ == "__main__":

@@ -12,10 +12,12 @@ from bot import config
 from bot.database import (
     create_report_batch,
     delete_report_batch,
+    delete_subject,
     get_all_report_batches,
     get_all_subjects,
     get_batch_by_id,
     get_batch_topics,
+    get_or_create_subject,
     get_subject_by_id,
 )
 from bot.handlers.states import ReportAdminStates
@@ -93,6 +95,17 @@ async def choose_subject_for_reports(callback: CallbackQuery, state: FSMContext)
         "➕ <b>Создание новой партии докладов</b>\n\n"
         "Выберите предмет, по которому будут подготовлены доклады:"
     )
+    extra_buttons = [
+        InlineKeyboardButton(
+            text="✏️ Ввести новый предмет вручную",
+            callback_data="arep_custom_subject",
+        ),
+        InlineKeyboardButton(
+            text="🗑️ Удалить предмет",
+            callback_data="arep_menu_delete_subject",
+        ),
+    ]
+
     if callback.message:
         try:
             await callback.message.edit_text(
@@ -101,11 +114,124 @@ async def choose_subject_for_reports(callback: CallbackQuery, state: FSMContext)
                     subjects=subjects,
                     callback_prefix="arep_pick_subj",
                     back_callback="admin_reports_menu",
+                    extra_buttons=extra_buttons,
                 ),
             )
         except TelegramBadRequest:
             pass
     await callback.answer()
+
+
+@router.callback_query(F.data == "arep_custom_subject")
+async def ask_custom_subject_for_reports(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос ввода названия нового предмета."""
+    if not _is_admin_check(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    await state.set_state(ReportAdminStates.waiting_for_custom_subject)
+    text = (
+        "✏️ <b>Ввод нового предмета</b>\n\n"
+        "Отправьте сообщением точное название предмета.\n"
+        "<i>Например: Нейропсихология или Психолингвистика</i>"
+    )
+    if callback.message:
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=get_cancel_reports_keyboard("arep_menu_add"),
+            )
+        except TelegramBadRequest:
+            pass
+    await callback.answer()
+
+
+@router.message(ReportAdminStates.waiting_for_custom_subject, F.text)
+async def process_custom_subject_input_for_reports(message: Message, state: FSMContext) -> None:
+    """Обработка названия нового предмета."""
+    if not _is_admin_check(message.from_user.id):
+        return
+
+    name = message.text.strip()
+    if not name or len(name) < 2:
+        await message.answer("⚠️ Название предмета слишком короткое. Пожалуйста, введите корректное название:")
+        return
+
+    subject = await get_or_create_subject(name, config.DB_PATH)
+    await state.set_state(ReportAdminStates.waiting_for_seminar_date)
+    await state.update_data(subject_id=subject["id"], subject_name=subject["name"])
+
+    text = (
+        f"🎤 <b>Предмет: {html.escape(subject['name'])}</b> (сохранен в списке дисциплин)\n\n"
+        "Шаг 1 из 3: Отправьте сообщением <b>дату семинара</b>, к которой готовятся доклады.\n"
+        "<i>Например: 15 ноября или 15.11.2026</i>"
+    )
+    await message.answer(text=text, reply_markup=get_cancel_reports_keyboard("arep_menu_add"))
+
+
+@router.callback_query(F.data == "arep_menu_delete_subject")
+async def show_delete_subject_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    """Меню выбора предмета для удаления."""
+    if not _is_admin_check(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    await state.clear()
+    subjects = await get_all_subjects(config.DB_PATH)
+    text = (
+        "🗑️ <b>Удаление предмета</b>\n\n"
+        "Выберите предмет, который хотите удалить из списка.\n"
+        "<i>Удалить можно только предмет, к которому не привязаны активные задания и доклады:</i>"
+    )
+    if callback.message:
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=get_subjects_keyboard(
+                    subjects=subjects,
+                    callback_prefix="arep_do_del_subj",
+                    back_callback="arep_menu_add",
+                ),
+            )
+        except TelegramBadRequest:
+            pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("arep_do_del_subj:"))
+async def process_delete_subject_action(callback: CallbackQuery) -> None:
+    """Удаление предмета по клику старосты."""
+    if not _is_admin_check(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    _, subj_id_raw = callback.data.split(":", 1)
+    subject_id = int(subj_id_raw)
+
+    success, msg = await delete_subject(subject_id, db_path=config.DB_PATH)
+    if not success:
+        await callback.answer(f"⚠️ {msg}", show_alert=True)
+        return
+
+    await callback.answer(f"✅ {msg}", show_alert=True)
+    subjects = await get_all_subjects(config.DB_PATH)
+    text = (
+        "🗑️ <b>Удаление предмета</b>\n\n"
+        f"✅ {html.escape(msg)}\n\n"
+        "Выберите следующий предмет для удаления или вернитесь назад:"
+    )
+    if callback.message:
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=get_subjects_keyboard(
+                    subjects=subjects,
+                    callback_prefix="arep_do_del_subj",
+                    back_callback="arep_menu_add",
+                ),
+            )
+        except TelegramBadRequest:
+            pass
 
 
 @router.callback_query(F.data.startswith("arep_pick_subj:"))

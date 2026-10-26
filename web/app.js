@@ -121,6 +121,10 @@
     modalReportBatch: document.getElementById('modalReportBatch'),
     formReportBatch: document.getElementById('formReportBatch'),
     reportSubjectSelect: document.getElementById('reportSubjectSelect'),
+    btnToggleReportManualSubject: document.getElementById('btnToggleReportManualSubject'),
+    btnDeleteReportSubject: document.getElementById('btnDeleteReportSubject'),
+    reportManualSubjectWrap: document.getElementById('reportManualSubjectWrap'),
+    reportManualSubjectInput: document.getElementById('reportManualSubjectInput'),
     reportSeminarDate: document.getElementById('reportSeminarDate'),
     reportReleaseDate: document.getElementById('reportReleaseDate'),
     reportTopicsText: document.getElementById('reportTopicsText'),
@@ -350,6 +354,13 @@
       customOpt.value = 'custom';
       customOpt.textContent = '✏️ Ввести предмет вручную...';
       hwSelect.appendChild(customOpt);
+    }
+
+    if (reportSelect) {
+      const customOptReport = document.createElement('option');
+      customOptReport.value = 'custom';
+      customOptReport.textContent = '✏️ Ввести новый предмет...';
+      reportSelect.appendChild(customOptReport);
     }
 
     // Заполняем фильтры-пилюли для ДЗ и докладов
@@ -911,12 +922,69 @@
   function setupReportsEvents() {
     document.getElementById('btnOpenAddReportModal')?.addEventListener('click', () => {
       elements.formReportBatch?.reset();
+      elements.reportManualSubjectWrap?.classList.add('hidden');
+      if (elements.reportSubjectSelect && elements.reportSubjectSelect.options.length > 0) {
+        elements.reportSubjectSelect.selectedIndex = 0;
+      }
       openModal(elements.modalReportBatch);
+    });
+
+    // Переключение ручного ввода предмета в модалке докладов
+    elements.btnToggleReportManualSubject?.addEventListener('click', () => {
+      const isHidden = elements.reportManualSubjectWrap?.classList.contains('hidden');
+      if (isHidden) {
+        elements.reportManualSubjectWrap?.classList.remove('hidden');
+        if (elements.reportSubjectSelect) elements.reportSubjectSelect.value = 'custom';
+        elements.reportManualSubjectInput?.focus();
+      } else {
+        elements.reportManualSubjectWrap?.classList.add('hidden');
+        if (elements.reportSubjectSelect && elements.reportSubjectSelect.options.length > 0) {
+          elements.reportSubjectSelect.selectedIndex = 0;
+        }
+      }
+    });
+
+    // Обработка выбора "Ввести новый предмет..." в выпадающем списке
+    elements.reportSubjectSelect?.addEventListener('change', () => {
+      if (elements.reportSubjectSelect.value === 'custom') {
+        elements.reportManualSubjectWrap?.classList.remove('hidden');
+        elements.reportManualSubjectInput?.focus();
+      } else {
+        elements.reportManualSubjectWrap?.classList.add('hidden');
+      }
+    });
+
+    // Удаление выбранного предмета из списка
+    elements.btnDeleteReportSubject?.addEventListener('click', async () => {
+      const selectedVal = elements.reportSubjectSelect?.value;
+      if (!selectedVal || selectedVal === 'custom') {
+        showToast('Выберите существующий предмет для удаления', 'warning');
+        return;
+      }
+      const subjectId = parseInt(selectedVal, 10);
+      const subj = state.subjects.find((s) => s.id === subjectId);
+      const subjName = subj ? subj.name : 'выбранный предмет';
+
+      const confirmed = window.confirm(`Вы уверены, что хотите удалить предмет «${subjName}»?`);
+      if (!confirmed) return;
+
+      try {
+        const res = await apiFetch(`/api/subjects/${subjectId}`, { method: 'DELETE' });
+        triggerHaptic('success');
+        showToast(res.message || 'Предмет успешно удален', 'success');
+        await loadSubjects();
+      } catch (err) {
+        triggerHaptic('error');
+        showToast(err.message || 'Не удалось удалить предмет', 'error');
+      }
     });
 
     elements.formReportBatch?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const subject_id = parseInt(elements.reportSubjectSelect.value, 10);
+      const isManual = (elements.reportSubjectSelect?.value === 'custom') ||
+        (elements.reportManualSubjectWrap && !elements.reportManualSubjectWrap.classList.contains('hidden') && elements.reportManualSubjectInput?.value.trim().length > 0);
+      const manualSubjectName = elements.reportManualSubjectInput ? elements.reportManualSubjectInput.value.trim() : '';
+
       const seminar_date = elements.reportSeminarDate.value.trim();
       const release_date = elements.reportReleaseDate.value.trim();
       const topicsText = elements.reportTopicsText.value.trim();
@@ -931,19 +999,37 @@
         return;
       }
 
+      let payload = { seminar_date, release_date, topics };
+      if (isManual) {
+        if (!manualSubjectName) {
+          showToast('Введите название нового предмета', 'warning');
+          elements.reportManualSubjectInput?.focus();
+          return;
+        }
+        payload.subject_name = manualSubjectName;
+      } else {
+        const subject_id = parseInt(elements.reportSubjectSelect.value, 10);
+        if (!subject_id || isNaN(subject_id)) {
+          showToast('Выберите предмет', 'warning');
+          return;
+        }
+        payload.subject_id = subject_id;
+      }
+
       try {
         const res = await apiFetch('/api/reports/batches', {
           method: 'POST',
-          body: JSON.stringify({ subject_id, seminar_date, release_date, topics }),
+          body: JSON.stringify(payload),
         });
         triggerHaptic('success');
         showToast(res.message || 'Пул докладов запланирован!', 'success');
+        await loadSubjects();
       } catch (err) {
-        const subj = state.subjects.find((s) => s.id === subject_id);
+        const subjName = isManual ? manualSubjectName : (state.subjects.find((s) => s.id === payload.subject_id)?.name || 'Предмет');
         state.demoReports.unshift({
           id: Date.now(),
-          subject_id,
-          subject_name: subj ? subj.name : 'Предмет',
+          subject_id: payload.subject_id || 9999,
+          subject_name: subjName,
           seminar_date,
           is_published: 0,
           release_date,

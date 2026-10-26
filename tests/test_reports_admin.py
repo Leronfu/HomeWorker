@@ -46,12 +46,16 @@ from bot.handlers.admin_reports import (
     confirm_delete_batch,
     execute_delete_batch,
     open_admin_reports_menu,
+    process_custom_subject_input_for_reports,
+    process_delete_subject_action,
     process_release_date_input,
     process_seminar_date_input,
     process_topics_list_input,
+    ask_custom_subject_for_reports,
     publish_batch_immediately,
     show_admin_batch_detail,
     show_admin_batches_list,
+    show_delete_subject_menu,
     start_report_fsm_seminar_date,
 )
 from bot.handlers.states import ReportAdminStates
@@ -530,6 +534,68 @@ class TestReportsAdminModule(unittest.IsolatedAsyncioTestCase):
         admin_call = mock_bot.send_message.call_args[1]
         self.assertEqual(admin_call["chat_id"], 999)
         self.assertIn("Все темы докладов разобраны!", admin_call["text"])
+
+    async def test_bot_custom_subject_flow(self) -> None:
+        """Проверка добавления нового предмета через бота при создании дропа."""
+        state = self._get_fsm_context(999)
+
+        # 1. Нажатие кнопки ввода своего предмета
+        cb = self._create_mock_callback(999, "arep_custom_subject")
+        await ask_custom_subject_for_reports(cb, state)
+        self.assertEqual(await state.get_state(), ReportAdminStates.waiting_for_custom_subject)
+        cb.message.edit_text.assert_called_once()
+        self.assertIn("Ввод нового предмета", cb.message.edit_text.call_args[1]["text"])
+
+        # 2. Ввод слишком короткого названия
+        msg_short = self._create_mock_message(999, "A")
+        await process_custom_subject_input_for_reports(msg_short, state)
+        msg_short.answer.assert_called_once()
+        self.assertIn("слишком короткое", msg_short.answer.call_args[0][0])
+        self.assertEqual(await state.get_state(), ReportAdminStates.waiting_for_custom_subject)
+
+        # 3. Ввод валидного названия
+        msg_valid = self._create_mock_message(999, "Нейробиология поведения")
+        await process_custom_subject_input_for_reports(msg_valid, state)
+        self.assertEqual(await state.get_state(), ReportAdminStates.waiting_for_seminar_date)
+        data = await state.get_data()
+        self.assertEqual(data["subject_name"], "Нейробиология поведения")
+        self.assertGreater(data["subject_id"], 0)
+
+    async def test_bot_delete_subject_flow(self) -> None:
+        """Проверка меню и действия удаления предмета через бота."""
+        state = self._get_fsm_context(999)
+
+        # 1. Открытие меню удаления предметов
+        cb_menu = self._create_mock_callback(999, "arep_menu_delete_subject")
+        await show_delete_subject_menu(cb_menu, state)
+        cb_menu.message.edit_text.assert_called_once()
+        self.assertIn("Удаление предмета", cb_menu.message.edit_text.call_args[1]["text"])
+
+        # 2. Попытка удаления предмета, к которому привязан батч
+        b_id = await create_report_batch(
+            subject_id=1,
+            seminar_date="16.11.2026",
+            release_date="14.11.2026",
+            release_datetime_random="2026-11-14 12:00:00",
+            topics=["Тема"],
+            db_path=TEST_DB_PATH,
+        )
+        cb_del_fail = self._create_mock_callback(999, "arep_do_del_subj:1")
+        await process_delete_subject_action(cb_del_fail)
+        cb_del_fail.answer.assert_called_once()
+        self.assertIn("Нельзя удалить", cb_del_fail.answer.call_args[0][0])
+
+        # 3. Удаление предмета без привязанных записей
+        # Создадим отдельный свободный предмет
+        from bot.database import get_or_create_subject
+        free_subj = await get_or_create_subject("Лишний предмет", TEST_DB_PATH)
+        free_id = free_subj["id"]
+
+        cb_del_ok = self._create_mock_callback(999, f"arep_do_del_subj:{free_id}")
+        await process_delete_subject_action(cb_del_ok)
+        cb_del_ok.answer.assert_called_once()
+        self.assertIn("удален", cb_del_ok.answer.call_args[0][0])
+
 
 
 if __name__ == "__main__":

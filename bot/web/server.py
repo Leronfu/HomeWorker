@@ -21,6 +21,8 @@ from bot.web.routes import (
     handle_get_reports_batches,
     handle_get_schedule,
     handle_get_subjects,
+    handle_create_subject,
+    handle_delete_subject,
     handle_health,
     handle_publish_reports_batch,
     handle_rollover_schedule,
@@ -50,6 +52,8 @@ def create_web_app(bot: Optional[Bot] = None, scheduler: Optional[AsyncIOSchedul
     app.router.add_get("/api/me", handle_auth_me)
     app.router.add_post("/api/auth", handle_auth_me)
     app.router.add_get("/api/subjects", handle_get_subjects)
+    app.router.add_post("/api/subjects", handle_create_subject)
+    app.router.add_delete("/api/subjects/{id}", handle_delete_subject)
 
     # Расписание
     app.router.add_get("/api/schedule", handle_get_schedule)

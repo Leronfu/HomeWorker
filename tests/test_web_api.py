@@ -23,7 +23,7 @@ import asyncio
 import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock
-from aiohttp import streams
+from aiohttp import streams, web
 from aiohttp.test_utils import make_mocked_request
 
 from bot import config
@@ -34,8 +34,10 @@ from bot.web.routes import (
     handle_claim_topic,
     handle_create_homework,
     handle_create_reports_batch,
+    handle_create_subject,
     handle_delete_homework,
     handle_delete_reports_batch,
+    handle_delete_subject,
     handle_get_homework,
     handle_get_reports_batches,
     handle_get_schedule,
@@ -368,6 +370,91 @@ class TestWebApi(unittest.IsolatedAsyncioTestCase):
         )
         resp_del = await handle_delete_reports_batch(req_del)
         self.assertEqual(resp_del.status, 200)
+
+    async def test_subjects_create_and_delete_api(self):
+        """Проверка API создания и удаления предметов для честного дропа."""
+        # 1. Студент не может создать предмет -> 403
+        req_forbidden = self._build_request(
+            "POST",
+            "/api/subjects",
+            headers={"X-Dev-Telegram-Id": str(TEST_STUDENT_ID)},
+            json_data={"name": "Новый предмет"},
+        )
+        with self.assertRaises(web.HTTPForbidden):
+            await handle_create_subject(req_forbidden)
+
+        # 2. Староста создает предмет
+        req_create = self._build_request(
+            "POST",
+            "/api/subjects",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            json_data={"name": "Психогенетика"},
+        )
+        resp_create = await handle_create_subject(req_create)
+        self.assertEqual(resp_create.status, 200)
+        data_create = json.loads(resp_create.text)
+        created_id = data_create["subject"]["id"]
+        self.assertEqual(data_create["subject"]["name"], "Психогенетика")
+
+        # 3. Проверяем получение списка предметов
+        req_get = self._build_request("GET", "/api/subjects")
+        resp_get = await handle_get_subjects(req_get)
+        self.assertEqual(resp_get.status, 200)
+        subjects = json.loads(resp_get.text)["subjects"]
+        self.assertIn("Психогенетика", [s["name"] for s in subjects])
+
+        # 4. Создаем батч докладов, указав subject_name на лету
+        req_batch = self._build_request(
+            "POST",
+            "/api/reports/batches",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            json_data={
+                "subject_name": "Зоопсихология",
+                "seminar_date": "25.12.2026",
+                "release_date": "24.12.2026",
+                "topics": ["Поведение приматов", "Условные рефлексы"],
+            },
+        )
+        resp_batch = await handle_create_reports_batch(req_batch)
+        self.assertEqual(resp_batch.status, 200)
+
+        # Проверяем, что предмет «Зоопсихология» был автоматически создан
+        req_subjs = self._build_request("GET", "/api/subjects")
+        resp_subjs = await handle_get_subjects(req_subjs)
+        all_subjs = json.loads(resp_subjs.text)["subjects"]
+        zoo_subj = next((s for s in all_subjs if s["name"] == "Зоопсихология"), None)
+        self.assertIsNotNone(zoo_subj)
+        zoo_subj_id = zoo_subj["id"]
+
+        # 5. Попытка удалить предмет, к которому привязан батч -> 400
+        req_del_fail = self._build_request(
+            "DELETE",
+            f"/api/subjects/{zoo_subj_id}",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            match_info={"id": str(zoo_subj_id)},
+        )
+        resp_del_fail = await handle_delete_subject(req_del_fail)
+        self.assertEqual(resp_del_fail.status, 400)
+
+        # 6. Удаление предмета без привязок (Психогенетика) -> 200
+        req_del_ok = self._build_request(
+            "DELETE",
+            f"/api/subjects/{created_id}",
+            headers={"X-Dev-Telegram-Id": str(TEST_ADMIN_ID)},
+            match_info={"id": str(created_id)},
+        )
+        resp_del_ok = await handle_delete_subject(req_del_ok)
+        self.assertEqual(resp_del_ok.status, 200)
+
+        # 7. Студент не может удалять предмет -> 403
+        req_del_forbidden = self._build_request(
+            "DELETE",
+            f"/api/subjects/{zoo_subj_id}",
+            headers={"X-Dev-Telegram-Id": str(TEST_STUDENT_ID)},
+            match_info={"id": str(zoo_subj_id)},
+        )
+        with self.assertRaises(web.HTTPForbidden):
+            await handle_delete_subject(req_del_forbidden)
 
     async def test_static_files_served(self):
         """Проверка раздачи фронтенд файлов Telegram Mini App (index.html, style.css, app.js)."""

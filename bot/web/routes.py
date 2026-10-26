@@ -19,6 +19,7 @@ from bot.database import (
     create_report_batch,
     delete_homework,
     delete_report_batch,
+    delete_subject,
     get_all_homework,
     get_all_report_batches,
     get_all_subjects,
@@ -181,6 +182,38 @@ async def handle_get_subjects(request: web.Request) -> web.Response:
     """Получение списка всех предметов."""
     subjects = await get_all_subjects()
     return json_response({"ok": True, "subjects": subjects})
+
+
+async def handle_create_subject(request: web.Request) -> web.Response:
+    """Создание нового предмета (только староста)."""
+    await require_admin(request)
+    try:
+        data = await request.json()
+    except Exception:
+        return json_response({"ok": False, "error": "Неверный формат JSON"}, 400)
+
+    name = str(data.get("name", "")).strip()
+    if not name:
+        return json_response({"ok": False, "error": "Название предмета не может быть пустым"}, 400)
+
+    subj = await get_or_create_subject(name)
+    return json_response({"ok": True, "subject": subj, "message": f"Предмет «{subj['name']}» добавлен"})
+
+
+async def handle_delete_subject(request: web.Request) -> web.Response:
+    """Удаление предмета (только староста)."""
+    await require_admin(request)
+    try:
+        subject_id = int(request.match_info["id"])
+    except (KeyError, ValueError):
+        return json_response({"ok": False, "error": "Некорректный ID предмета"}, 400)
+
+    force = request.query.get("force") == "1"
+    success, msg = await delete_subject(subject_id, force=force)
+    if not success:
+        return json_response({"ok": False, "error": msg}, 400)
+
+    return json_response({"ok": True, "message": msg})
 
 
 async def handle_get_schedule(request: web.Request) -> web.Response:
@@ -376,9 +409,14 @@ async def handle_create_reports_batch(request: web.Request) -> web.Response:
         return json_response({"ok": False, "error": "Неверный формат JSON"}, 400)
 
     subject_id = data.get("subject_id")
+    subject_name = str(data.get("subject_name", "")).strip()
     seminar_date = str(data.get("seminar_date", "")).strip()
     release_date_str = str(data.get("release_date", "")).strip()
     topics_raw = data.get("topics")
+
+    if (not subject_id or subject_id == "custom") and subject_name:
+        subj = await get_or_create_subject(subject_name)
+        subject_id = subj["id"]
 
     if not subject_id or not seminar_date or not release_date_str or not topics_raw:
         return json_response({"ok": False, "error": "Заполните все поля: предмет, дату семинара, дату дропа и темы"}, 400)

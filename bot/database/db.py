@@ -2,7 +2,7 @@
 
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Dict, List, Optional, Any
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 import aiosqlite
 
 DEFAULT_DB_PATH = os.getenv("DB_PATH", "homeworker.db")
@@ -261,6 +261,47 @@ async def get_or_create_subject(name: str, db_path: Optional[str] = None) -> Dic
         await db.commit()
         new_id = cursor.lastrowid
         return {"id": new_id, "name": cleaned}
+
+
+async def delete_subject(
+    subject_id: int, force: bool = False, db_path: Optional[str] = None
+) -> Tuple[bool, str]:
+    """Удалить предмет из БД.
+    
+    Если force=False, проверяет отсутствие привязанных докладов и домашних заданий.
+    Если предмет используется, возвращает (False, сообщение об ошибке).
+    """
+    from bot import config
+
+    actual_db = db_path or config.DB_PATH
+    async with get_connection(actual_db) as db:
+        cursor = await db.execute("SELECT name FROM subjects WHERE id = ?;", (subject_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return False, "Предмет не найден"
+
+        subj_name = row["name"]
+
+        if not force:
+            c_reports = await db.execute("SELECT COUNT(*) as cnt FROM report_batches WHERE subject_id = ?;", (subject_id,))
+            r_row = await c_reports.fetchone()
+            reports_cnt = r_row["cnt"] if r_row else 0
+
+            c_hw = await db.execute("SELECT COUNT(*) as cnt FROM homework WHERE subject_id = ?;", (subject_id,))
+            hw_row = await c_hw.fetchone()
+            hw_cnt = hw_row["cnt"] if hw_row else 0
+
+            if reports_cnt > 0 or hw_cnt > 0:
+                reasons = []
+                if reports_cnt > 0:
+                    reasons.append(f"пулов докладов: {reports_cnt}")
+                if hw_cnt > 0:
+                    reasons.append(f"домашних заданий: {hw_cnt}")
+                return False, f"Нельзя удалить предмет «{subj_name}»: к нему привязано {', '.join(reasons)}. Сначала удалите их."
+
+        await db.execute("DELETE FROM subjects WHERE id = ?;", (subject_id,))
+        await db.commit()
+        return True, f"Предмет «{subj_name}» успешно удален"
 
 
 # =====================================================================

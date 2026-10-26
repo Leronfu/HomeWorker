@@ -24,6 +24,7 @@ class HomeworkAdminStates(StatesGroup):
 
 class ReportAdminStates(StatesGroup):
     """Состояния FSM для создания и планирования партий докладов старостой."""
+    waiting_for_custom_subject = State()
     waiting_for_seminar_date = State()
     waiting_for_topics_list = State()
     waiting_for_release_date = State()
